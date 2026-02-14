@@ -72,7 +72,7 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
     }
     .option-item:last-child { margin-bottom: 0; }
     label { display: block; font-size: 14px; margin-bottom: 6px; }
-    input, textarea {
+    input[type="email"], input[type="text"], textarea {
       width: 100%;
       border: 1px solid #9e978c;
       border-radius: 3px;
@@ -81,6 +81,11 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
       margin-bottom: 12px;
       box-sizing: border-box;
       font-family: inherit;
+    }
+    input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+      flex: 0 0 auto;
     }
     button {
       border: 0;
