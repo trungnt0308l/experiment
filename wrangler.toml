@@ -1,0 +1,54 @@
+name = "ai-security-incident-radar"
+main = "src/index.ts"
+compatibility_date = "2026-02-14"
+
+[triggers]
+crons = ["*/30 * * * *"]
+
+[env.dev]
+
+[env.dev.vars]
+APP_NAME = "AI Security Incident Radar"
+SITE_URL = "https://aisecurityradar.com"
+GA_MEASUREMENT_ID = "G-Z3VJWF5DTV"
+RSS_FEEDS = "https://www.kb.cert.org/vuls/atomfeed/,https://cert.europa.eu/publications/security-advisories-rss"
+MAX_EVENT_AGE_DAYS = "60"
+ENABLE_HN_SOURCE = "false"
+HN_MAX_ITEMS = "0"
+AUTO_PUBLISH_TRUSTED_SOURCES = "nvd"
+AUTO_PUBLISH_MIN_SEVERITY = "high"
+OPENAI_MODEL = "gpt-5-mini"
+LLM_DEDUPE_ENABLED = "true"
+LLM_ENRICH_ENABLED = "true"
+LLM_DEDUPE_MAX_CALLS = "6"
+LLM_ENRICH_MAX_CALLS = "2"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "ai-security-radar"
+database_id = "389bd183-d056-405d-8e25-b1d4dd7b55fc"
+migrations_dir = "migrations"
+
+[env.production]
+
+[env.production.vars]
+APP_NAME = "AI Security Incident Radar"
+SITE_URL = "https://aisecurityradar.com"
+GA_MEASUREMENT_ID = "G-Z3VJWF5DTV"
+RSS_FEEDS = "https://www.kb.cert.org/vuls/atomfeed/,https://cert.europa.eu/publications/security-advisories-rss"
+MAX_EVENT_AGE_DAYS = "60"
+ENABLE_HN_SOURCE = "false"
+HN_MAX_ITEMS = "0"
+AUTO_PUBLISH_TRUSTED_SOURCES = "nvd"
+AUTO_PUBLISH_MIN_SEVERITY = "high"
+OPENAI_MODEL = "gpt-5-mini"
+LLM_DEDUPE_ENABLED = "true"
+LLM_ENRICH_ENABLED = "true"
+LLM_DEDUPE_MAX_CALLS = "6"
+LLM_ENRICH_MAX_CALLS = "2"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "ai-security-radar"
+database_id = "389bd183-d056-405d-8e25-b1d4dd7b55fc"
+migrations_dir = "migrations"
