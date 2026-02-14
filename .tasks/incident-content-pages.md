@@ -5,7 +5,7 @@
 - **Branch**: feat/ai-security-incident-radar-prd
 - **PR**: (link once created)
 - **Created**: 2026-02-14 11:40:44+07:00
-- **Last Updated**: 2026-02-14 11:40:44+07:00
+- **Last Updated**: 2026-02-14 11:45:00+07:00
 
 ## Objective
 Add incident content pages using recent internet-sourced AI security incidents.
@@ -31,3 +31,9 @@ Add incident content pages using recent internet-sourced AI security incidents.
 
 ## Issues / Blockers
 (none)
+
+
+- [2026-02-14 11:45:00+07:00] Updated incident dataset to 2026-focused entries and added descending date sort so newest incidents render first.
+- [2026-02-14 11:45:00+07:00] Re-ran typecheck and test suite; all checks passed.
+- [2026-02-14 11:48:30+07:00] Added shared site header/footer to incidents and policy pages via UI layout helpers; landing now reuses same shell.
+- [2026-02-14 11:48:30+07:00] Verified typecheck and tests after layout refactor.
