@@ -4,11 +4,23 @@ compatibility_date = "2026-02-14"
 
 [vars]
 APP_NAME = "AI Security Incident Radar"
-GA_MEASUREMENT_ID = ""
+GA_MEASUREMENT_ID = "G-Z3VJWF5DTV"
 
 # Add D1 binding in production and local environments once created.
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "ai-security-radar"
-# database_id = "<your-d1-database-id>"
-# migrations_dir = "migrations"
+[[d1_databases]]
+binding = "DB"
+database_name = "ai-security-radar"
+database_id = "389bd183-d056-405d-8e25-b1d4dd7b55fc"
+migrations_dir = "migrations"
+
+[env.production]
+
+[env.production.vars]
+APP_NAME = "AI Security Incident Radar"
+GA_MEASUREMENT_ID = "G-Z3VJWF5DTV"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "ai-security-radar"
+database_id = "389bd183-d056-405d-8e25-b1d4dd7b55fc"
+migrations_dir = "migrations"
