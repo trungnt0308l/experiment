@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { z } from 'zod';
 import { renderLandingPage } from './ui';
 
 export type EnvBindings = {
   APP_NAME?: string;
+  GA_MEASUREMENT_ID?: string;
   DB?: D1Database;
 };
 
@@ -13,6 +15,11 @@ export type WaitlistSignup = {
   role: string;
   interests: string;
   source?: string;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  referrer?: string;
+  landingPath?: string;
 };
 
 const schema = z.object({
@@ -21,6 +28,11 @@ const schema = z.object({
   role: z.string().min(2).max(120),
   interests: z.string().min(2).max(240),
   source: z.string().max(120).optional().or(z.literal('')),
+  utmSource: z.string().max(120).optional().or(z.literal('')),
+  utmMedium: z.string().max(120).optional().or(z.literal('')),
+  utmCampaign: z.string().max(120).optional().or(z.literal('')),
+  referrer: z.string().max(500).optional().or(z.literal('')),
+  landingPath: z.string().max(300).optional().or(z.literal('')),
 });
 
 class MemoryStore {
@@ -43,6 +55,11 @@ function normalize(form: Record<string, string | undefined>): WaitlistSignup {
     role: form.role?.trim() ?? '',
     interests: form.interests?.trim() ?? '',
     source: form.source?.trim() || undefined,
+    utmSource: form.utmSource?.trim() || undefined,
+    utmMedium: form.utmMedium?.trim() || undefined,
+    utmCampaign: form.utmCampaign?.trim() || undefined,
+    referrer: form.referrer?.trim() || undefined,
+    landingPath: form.landingPath?.trim() || undefined,
   };
 }
 
@@ -51,16 +68,57 @@ async function saveSignup(db: D1Database | undefined, signup: WaitlistSignup): P
     return memoryStore.upsert(signup);
   }
 
+  const email = signup.email.toLowerCase();
+  const exists = await db.prepare('SELECT 1 AS found FROM waitlist_signups WHERE email = ?1 LIMIT 1').bind(email).first();
+
   const now = new Date().toISOString();
-  const result = await db
+  await db
     .prepare(
-      `INSERT OR IGNORE INTO waitlist_signups (email, company, role, interests, source, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+      `INSERT INTO waitlist_signups (
+         email, company, role, interests, source, utm_source, utm_medium, utm_campaign, referrer, landing_path, created_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+       ON CONFLICT(email) DO UPDATE SET
+         company = excluded.company,
+         role = excluded.role,
+         interests = excluded.interests,
+         source = excluded.source,
+         utm_source = excluded.utm_source,
+         utm_medium = excluded.utm_medium,
+         utm_campaign = excluded.utm_campaign,
+         referrer = excluded.referrer,
+         landing_path = excluded.landing_path`
     )
-    .bind(signup.email.toLowerCase(), signup.company, signup.role, signup.interests, signup.source ?? null, now)
+    .bind(
+      email,
+      signup.company,
+      signup.role,
+      signup.interests,
+      signup.source ?? null,
+      signup.utmSource ?? null,
+      signup.utmMedium ?? null,
+      signup.utmCampaign ?? null,
+      signup.referrer ?? null,
+      signup.landingPath ?? null,
+      now
+    )
     .run();
 
-  return { inserted: result.success && (result.meta?.changes ?? 0) > 0 };
+  return { inserted: !exists };
+}
+
+function toPayload(body: Record<string, string | File>): Record<string, string | undefined> {
+  return Object.fromEntries(
+    Object.entries(body).map(([k, v]) => [k, typeof v === 'string' ? v : String(v)])
+  );
+}
+
+async function parsePayload(c: Context<{ Bindings: EnvBindings }>): Promise<Record<string, string | undefined>> {
+  const contentType = c.req.header('content-type') ?? '';
+  if (contentType.includes('application/json')) {
+    return (await c.req.json()) as Record<string, string | undefined>;
+  }
+  const body = await c.req.parseBody();
+  return toPayload(body as Record<string, string | File>);
 }
 
 export function createApp() {
@@ -70,22 +128,11 @@ export function createApp() {
 
   app.get('/', (c) => {
     const appName = c.env.APP_NAME ?? 'AI Security Incident Radar';
-    return c.html(renderLandingPage(appName));
+    return c.html(renderLandingPage(appName, c.env.GA_MEASUREMENT_ID));
   });
 
   app.post('/api/waitlist', async (c) => {
-    const contentType = c.req.header('content-type') ?? '';
-
-    let payload: Record<string, string | undefined> = {};
-
-    if (contentType.includes('application/json')) {
-      payload = (await c.req.json()) as Record<string, string | undefined>;
-    } else {
-      const body = await c.req.parseBody();
-      payload = Object.fromEntries(
-        Object.entries(body).map(([k, v]) => [k, typeof v === 'string' ? v : String(v)])
-      );
-    }
+    const payload = await parsePayload(c);
 
     const parsed = schema.safeParse(normalize(payload));
     if (!parsed.success) {

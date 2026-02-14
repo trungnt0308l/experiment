@@ -1,10 +1,21 @@
-export function renderLandingPage(appName: string): string {
+export function renderLandingPage(appName: string, gaMeasurementId?: string): string {
+  const gaSnippet = gaMeasurementId
+    ? `<script async src="https://www.googletagmanager.com/gtag/js?id=${gaMeasurementId}"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', '${gaMeasurementId}');
+  </script>`
+    : '';
+
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${appName}</title>
+  ${gaSnippet}
   <style>
     :root {
       --bg: #f6f4ef;
@@ -106,6 +117,12 @@ export function renderLandingPage(appName: string): string {
         <textarea id="interests" name="interests" rows="3" required></textarea>
 
         <input type="hidden" name="source" value="landing-page" />
+        <input type="hidden" name="utmSource" id="utmSource" value="" />
+        <input type="hidden" name="utmMedium" id="utmMedium" value="" />
+        <input type="hidden" name="utmCampaign" id="utmCampaign" value="" />
+        <input type="hidden" name="referrer" id="referrer" value="" />
+        <input type="hidden" name="landingPath" id="landingPath" value="" />
+
         <button type="submit">Request Early Access</button>
         <p id="status" class="small" aria-live="polite"></p>
       </form>
@@ -115,6 +132,23 @@ export function renderLandingPage(appName: string): string {
   <script>
     const form = document.getElementById('waitlist-form');
     const status = document.getElementById('status');
+    const params = new URLSearchParams(window.location.search);
+
+    const setField = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.value = value || '';
+      }
+    };
+
+    const utmSource = params.get('utm_source') || '';
+    const utmMedium = params.get('utm_medium') || '';
+    const utmCampaign = params.get('utm_campaign') || '';
+    setField('utmSource', utmSource);
+    setField('utmMedium', utmMedium);
+    setField('utmCampaign', utmCampaign);
+    setField('referrer', document.referrer || 'direct');
+    setField('landingPath', window.location.pathname + window.location.search);
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();

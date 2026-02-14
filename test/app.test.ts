@@ -13,6 +13,16 @@ function makeEnv() {
 }
 
 describe('waitlist endpoint', () => {
+  test('renders homepage with attribution fields', async () => {
+    const app = createApp();
+    const res = await app.request('http://localhost/', undefined, makeEnv());
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('name="utmSource"');
+    expect(html).toContain('name="utmMedium"');
+    expect(html).toContain('name="utmCampaign"');
+  });
+
   test('accepts valid signup', async () => {
     const app = createApp();
 
@@ -22,6 +32,11 @@ describe('waitlist endpoint', () => {
       role: 'Security Engineer',
       interests: 'Prompt injection and model supply chain risks',
       source: 'test',
+      utmSource: 'google',
+      utmMedium: 'cpc',
+      utmCampaign: 'phase0',
+      referrer: 'https://google.com',
+      landingPath: '/?utm_source=google',
     });
 
     const res = await app.request('http://localhost/api/waitlist', {
