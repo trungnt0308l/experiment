@@ -1,0 +1,6 @@
+# Local development variables (do not commit real values)
+ADMIN_API_TOKEN=replace-with-random-token
+NOTIFY_EMAIL_TO=security@aisecurityradar.com
+RESEND_API_KEY=re_replace_me
+TELEGRAM_BOT_TOKEN=replace_me
+TELEGRAM_CHAT_ID=replace_me
