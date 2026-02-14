@@ -8,12 +8,23 @@ import {
   renderIncidentDetailPage,
   renderIncidentsPage,
   renderLandingPage,
+  renderRoleHubPage,
+  renderRoleProblemPage,
   renderPrivacyPage,
   renderSecurityPage,
   renderTermsPage,
 } from './ui';
 import { createDraftFromIngestionEvent, runIngestionPipeline } from './ingestion';
 import { llmEnrichIncident } from './llm';
+import {
+  computePageQualityGate,
+  findRoleProblemPage,
+  getRelatedPagesByProblem,
+  getRelatedPagesByRole,
+  listRoleProblemPages,
+  pseoSourceTag,
+  type RoleProblemIncidentSummary,
+} from './pseo';
 
 export type EnvBindings = {
   APP_NAME?: string;
@@ -28,6 +39,8 @@ export type EnvBindings = {
   LLM_ENRICH_ENABLED?: string;
   LLM_DEDUPE_MAX_CALLS?: string;
   LLM_ENRICH_MAX_CALLS?: string;
+  PSEO_ROLE_PAGES_ENABLED?: string;
+  PSEO_ROLE_PAGES_INDEXING_ENABLED?: string;
   HN_MAX_ITEMS?: string;
   RSS_FEEDS?: string;
   MAX_EVENT_AGE_DAYS?: string;
@@ -193,6 +206,28 @@ function getSiteUrl(c: Context<{ Bindings: EnvBindings }>): string {
     return configured.replace(/\/+$/, '');
   }
   return new URL(c.req.url).origin.replace(/\/+$/, '');
+}
+
+function envFlag(value: string | undefined, fallback = false): boolean {
+  if (!value) {
+    return fallback;
+  }
+  return value.toLowerCase() === 'true';
+}
+
+function relatedIncidentsForSignals(incidents: IncidentEntry[], signals: string[], limit = 4): RoleProblemIncidentSummary[] {
+  const normalizedSignals = signals.map((signal) => signal.toLowerCase());
+  return incidents
+    .filter((incident) => {
+      const haystack = `${incident.title} ${incident.summary} ${incident.impact}`.toLowerCase();
+      return normalizedSignals.some((signal) => haystack.includes(signal));
+    })
+    .slice(0, limit)
+    .map((incident) => ({
+      slug: incident.slug,
+      title: incident.title,
+      summary: incident.summary,
+    }));
 }
 
 async function fetchPublishedDbIncidents(db: D1Database | undefined): Promise<IncidentEntry[]> {
@@ -814,6 +849,55 @@ export function createApp() {
     return c.html(renderIncidentDetailPage(incident, incidents, getSiteUrl(c)));
   });
 
+  app.get('/for', async (c) => {
+    if (!envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false)) {
+      return c.text('Not found', 404);
+    }
+    const pages = listRoleProblemPages();
+    const appName = c.env.APP_NAME ?? 'AI Security Incident Radar';
+    return c.html(renderRoleHubPage(pages, appName, c.env.GA_MEASUREMENT_ID, getSiteUrl(c)));
+  });
+
+  app.get('/for/:role/:problem', async (c) => {
+    if (!envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false)) {
+      return c.text('Not found', 404);
+    }
+
+    const role = c.req.param('role');
+    const problem = c.req.param('problem');
+    const page = findRoleProblemPage(role, problem);
+    if (!page) {
+      return c.text('Not found', 404);
+    }
+
+    const incidents = await listIncidents(c.env.DB);
+    const relatedByRole = getRelatedPagesByRole(page.roleSlug, page.problemSlug, 5);
+    const relatedByProblem = getRelatedPagesByProblem(page.problemSlug, page.roleSlug, 5);
+    const relatedIncidents = relatedIncidentsForSignals(incidents, page.keywordSignals, 4);
+    const qualityGate = computePageQualityGate(page);
+    const indexingEnabled = envFlag(c.env.PSEO_ROLE_PAGES_INDEXING_ENABLED, false);
+    const noindex = !indexingEnabled || !qualityGate.indexable;
+    const sourceTag = pseoSourceTag(page.roleSlug, page.problemSlug);
+    const appName = c.env.APP_NAME ?? 'AI Security Incident Radar';
+
+    return c.html(
+      renderRoleProblemPage(
+        {
+          page,
+          relatedByRole,
+          relatedByProblem,
+          relatedIncidents,
+          qualityGate,
+          noindex,
+          sourceTag,
+        },
+        appName,
+        c.env.GA_MEASUREMENT_ID,
+        getSiteUrl(c)
+      )
+    );
+  });
+
   app.get('/privacy', (c) => c.html(renderPrivacyPage(getSiteUrl(c))));
   app.get('/terms', (c) => c.html(renderTermsPage(getSiteUrl(c))));
   app.get('/security', (c) => c.html(renderSecurityPage(getSiteUrl(c))));
@@ -839,6 +923,8 @@ export function createApp() {
   app.get('/sitemap.xml', async (c) => {
     const siteUrl = getSiteUrl(c);
     const incidents = await listIncidents(c.env.DB);
+    const pseoPagesEnabled = envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false);
+    const pseoIndexingEnabled = envFlag(c.env.PSEO_ROLE_PAGES_INDEXING_ENABLED, false);
     const nowIso = new Date().toISOString();
     const staticUrls: Array<{ path: string; lastmod: string }> = [
       { path: '/', lastmod: nowIso },
@@ -847,13 +933,23 @@ export function createApp() {
       { path: '/terms', lastmod: nowIso },
       { path: '/security', lastmod: nowIso },
     ];
+    if (pseoPagesEnabled) {
+      staticUrls.push({ path: '/for', lastmod: nowIso });
+    }
     const incidentUrls = incidents.map((incident) => {
       const parsedSort = Date.parse(incident.sortDate);
       const incidentLastmod = Number.isNaN(parsedSort) ? nowIso : new Date(parsedSort).toISOString();
       return { path: `/incidents/${incident.slug}`, lastmod: incidentLastmod };
     });
 
-    const allUrls = [...staticUrls, ...incidentUrls];
+    const pseoUrls =
+      pseoPagesEnabled && pseoIndexingEnabled
+        ? listRoleProblemPages()
+            .filter((page) => computePageQualityGate(page).indexable)
+            .map((page) => ({ path: page.path, lastmod: nowIso }))
+        : [];
+
+    const allUrls = [...staticUrls, ...incidentUrls, ...pseoUrls];
     const entries = allUrls
       .map(
         (item) => `  <url>

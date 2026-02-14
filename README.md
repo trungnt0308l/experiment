@@ -7,6 +7,7 @@ Current production status:
 - Health check: `/health`
 - Legal pages: `/privacy`, `/terms`, `/security`
 - Incident content pages: `/incidents` and `/incidents/:slug`
+- Role-focused pSEO pages: `/for` and `/for/:role/:problem` (feature-flagged)
 - SEO endpoints: `/sitemap.xml` and `/robots.txt`
 - Admin exports: `/api/admin/signups` and `/admin/signups` (token-protected)
 - Ingestion trigger: `POST /api/admin/ingestion/run` (token-protected)
@@ -128,12 +129,22 @@ Feed overrides:
 - Set `HN_MAX_ITEMS` (default `8`) to cap HN subrequests and avoid Worker resource-limit errors.
 - Set `ENABLE_HN_SOURCE=false` to disable HN ingestion temporarily.
 - Auto-publish rule: incidents from trusted sources in `AUTO_PUBLISH_TRUSTED_SOURCES` (default `nvd`) and meeting `AUTO_PUBLISH_MIN_SEVERITY` (default `high`) are published immediately.
+- Role-focused pSEO controls:
+  - `PSEO_ROLE_PAGES_ENABLED=true|false` (default `false`) enables `/for` and `/for/:role/:problem` routes.
+  - `PSEO_ROLE_PAGES_INDEXING_ENABLED=true|false` (default `false`) controls whether spoke pages are indexable and included in sitemap.
+  - When indexing is disabled, spoke pages render with `noindex, nofollow` and stay out of `/sitemap.xml`.
 
 Behavior:
 - On each new waitlist signup (`joined` only), app sends notification attempts to Email (Resend) and Telegram.
 - If env vars are missing, the channel is skipped safely.
 - Semantic dedupe uses GPT-5 mini only for shortlist candidates (cost-capped by `LLM_DEDUPE_MAX_CALLS`).
 - Published incidents (auto-published and manually published drafts) are enriched by GPT-5 mini and stored in `draft_posts`.
+- Role/problem pSEO pages link internally by role and topic, include FAQ + breadcrumb JSON-LD, and use waitlist CTA source tags in the format `pseo-role-<role>-<problem>`.
+
+### pSEO rollout
+1. Phase A: deploy with `PSEO_ROLE_PAGES_ENABLED=false` and `PSEO_ROLE_PAGES_INDEXING_ENABLED=false`.
+2. Phase B: set `PSEO_ROLE_PAGES_ENABLED=true` and keep indexing disabled for QA/analytics checks.
+3. Phase C: set `PSEO_ROLE_PAGES_INDEXING_ENABLED=true` after content/quality validation.
 
 ### Post-deploy checks
 1. Open `https://aisecurityradar.com`.

@@ -80,6 +80,45 @@ describe('waitlist endpoint', () => {
     expect(detail.status).toBe(404);
   });
 
+  test('returns 404 for role hub when pseo pages are disabled', async () => {
+    const app = createApp();
+    const res = await app.request('http://localhost/for', undefined, makeEnv());
+    expect(res.status).toBe(404);
+  });
+
+  test('renders role hub when pseo pages are enabled', async () => {
+    const app = createApp();
+    const env = { ...makeEnv(), PSEO_ROLE_PAGES_ENABLED: 'true' };
+    const res = await app.request('http://localhost/for', undefined, env);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('AI Security Monitoring by Role');
+    expect(html).toContain('/for/ciso/prompt-injection-risk');
+  });
+
+  test('renders role problem spoke with waitlist source/interests and noindex when indexing disabled', async () => {
+    const app = createApp();
+    const env = {
+      ...makeEnv(),
+      PSEO_ROLE_PAGES_ENABLED: 'true',
+      PSEO_ROLE_PAGES_INDEXING_ENABLED: 'false',
+    };
+    const res = await app.request('http://localhost/for/ciso/prompt-injection-risk', undefined, env);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('name="source" value="pseo-role-ciso-prompt-injection-risk"');
+    expect(html).toContain('name="interests" value="Prompt Injection Risk Monitoring"');
+    expect(html).toContain('name="robots" content="noindex, nofollow"');
+    expect(html).toContain('application/ld+json');
+  });
+
+  test('returns 404 for invalid role/problem spoke route', async () => {
+    const app = createApp();
+    const env = { ...makeEnv(), PSEO_ROLE_PAGES_ENABLED: 'true' };
+    const res = await app.request('http://localhost/for/ciso/not-real', undefined, env);
+    expect(res.status).toBe(404);
+  });
+
   test('serves sitemap and robots', async () => {
     const app = createApp();
     const env = { ...makeEnv(), SITE_URL: 'https://aisecurityradar.com' };
@@ -96,6 +135,33 @@ describe('waitlist endpoint', () => {
     const robotsText = await robots.text();
     expect(robotsText).toContain('Sitemap: https://aisecurityradar.com/sitemap.xml');
     expect(robotsText).toContain('Disallow: /admin');
+  });
+
+  test('sitemap includes /for but excludes spoke pages when indexing is disabled', async () => {
+    const app = createApp();
+    const env = {
+      ...makeEnv(),
+      SITE_URL: 'https://aisecurityradar.com',
+      PSEO_ROLE_PAGES_ENABLED: 'true',
+      PSEO_ROLE_PAGES_INDEXING_ENABLED: 'false',
+    };
+    const sitemap = await app.request('http://localhost/sitemap.xml', undefined, env);
+    const xml = await sitemap.text();
+    expect(xml).toContain('https://aisecurityradar.com/for');
+    expect(xml).not.toContain('/for/ciso/prompt-injection-risk');
+  });
+
+  test('sitemap includes indexable spoke pages when indexing is enabled', async () => {
+    const app = createApp();
+    const env = {
+      ...makeEnv(),
+      SITE_URL: 'https://aisecurityradar.com',
+      PSEO_ROLE_PAGES_ENABLED: 'true',
+      PSEO_ROLE_PAGES_INDEXING_ENABLED: 'true',
+    };
+    const sitemap = await app.request('http://localhost/sitemap.xml', undefined, env);
+    const xml = await sitemap.text();
+    expect(xml).toContain('/for/ciso/prompt-injection-risk');
   });
 
   test('rejects unauthorized admin access', async () => {

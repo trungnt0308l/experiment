@@ -1,3 +1,5 @@
+import type { RoleProblemPageDefinition, RoleProblemPageViewModel } from './pseo';
+
 export type IncidentSource = {
   label: string;
   url: string;
@@ -153,6 +155,7 @@ function renderSiteHeader(appName = 'AI Security Radar'): string {
         <div class="brand"><span class="mark">ASR</span> ${escapeHtml(appName)}</div>
       </a>
       <div class="nav">
+        <a class="link-btn" href="/for">By Role</a>
         <a class="link-btn" href="/incidents">Recent Incidents</a>
         <a class="link-btn cta-nav" id="nav-get-notified" data-cta="nav_get_notified" href="/#waitlist-form">Get Notified</a>
       </div>
@@ -164,8 +167,26 @@ function renderSiteFooter(): string {
       <span>AI Security Radar</span>
       <span>Contact: <a href="mailto:security@aisecurityradar.com">security@aisecurityradar.com</a></span>
       <span>&copy; 2026 AI Security Radar</span>
-      <span><a href="/privacy">Privacy</a> | <a href="/terms">Terms</a> | <a href="/security">Security</a></span>
+      <span><a href="/for">By Role</a> | <a href="/privacy">Privacy</a> | <a href="/terms">Terms</a> | <a href="/security">Security</a></span>
     </footer>`;
+}
+
+function renderGaSnippet(gaMeasurementId?: string): string {
+  if (!gaMeasurementId) {
+    return '';
+  }
+  return `<script async src="https://www.googletagmanager.com/gtag/js?id=${gaMeasurementId}"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', '${gaMeasurementId}');
+  </script>`;
+}
+
+function jsonLdScript(payload: unknown): string {
+  const safeJson = JSON.stringify(payload).replaceAll('<', '\\u003c');
+  return `<script type="application/ld+json">${safeJson}</script>`;
 }
 
 export function renderLandingPage(
@@ -174,15 +195,7 @@ export function renderLandingPage(
   sampleAlert?: LandingSampleAlert,
   siteUrl?: string
 ): string {
-  const gaSnippet = gaMeasurementId
-    ? `<script async src="https://www.googletagmanager.com/gtag/js?id=${gaMeasurementId}"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-    gtag('config', '${gaMeasurementId}');
-  </script>`
-    : '';
+  const gaSnippet = renderGaSnippet(gaMeasurementId);
   const seoSnippet = renderSeoMeta({
     title: appName,
     description:
@@ -596,6 +609,389 @@ export function renderLandingPage(
       }
       status.className = 'small ok';
     });
+  </script>
+</body>
+</html>`;
+}
+
+export function renderRoleHubPage(
+  pages: RoleProblemPageDefinition[],
+  appName: string,
+  gaMeasurementId?: string,
+  siteUrl?: string
+): string {
+  const seoSnippet = renderSeoMeta({
+    title: 'AI Security Monitoring by Role | AI Security Radar',
+    description:
+      'Role-focused AI security monitoring pages for CISO, CEO, IT lead, and SMB owner teams with practical response guidance and waitlist access.',
+    canonicalPath: '/for',
+    siteUrl,
+    type: 'website',
+  });
+  const gaSnippet = renderGaSnippet(gaMeasurementId);
+
+  const groups = new Map<string, RoleProblemPageDefinition[]>();
+  for (const page of pages) {
+    const key = page.roleLabel;
+    const existing = groups.get(key) ?? [];
+    existing.push(page);
+    groups.set(key, existing);
+  }
+
+  const roleBlocks = Array.from(groups.entries())
+    .map(([role, items]) => {
+      const links = items
+        .map(
+          (item) => `<li><a href="${escapeAttr(item.path)}">${toSafeText(item.problemLabel)}</a></li>`
+        )
+        .join('');
+      return `<section class="role-card">
+        <h2>${toSafeText(role)}</h2>
+        <ul>${links}</ul>
+      </section>`;
+    })
+    .join('');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Security Monitoring by Role</title>
+  ${seoSnippet}
+  ${gaSnippet}
+  <style>
+    body { font-family: Georgia, "Times New Roman", serif; margin: 0; background: #f7f5ef; color: #1c1915; }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom: 16px; gap: 10px; }
+    .brand-link { color: inherit; text-decoration: none; }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:.2px; }
+    .mark { width:28px; height:28px; border-radius:50%; background:#a71f1c; color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; }
+    .nav { display:flex; align-items:center; gap:8px; }
+    .link-btn { border:1px solid #d9d2c7; padding:8px 10px; background:#fff; color:#1c1915; text-decoration:none; font-size:14px; }
+    .cta-nav { background:#135d7a; border-color:#135d7a; color:#fff; font-weight:700; }
+    .hero { border: 1px solid #ddd6c8; background: #fffdf9; padding: 18px; margin-bottom: 16px; }
+    .hero p { font-size: 18px; margin: 0 0 8px; }
+    .grid { display:grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .role-card { border: 1px solid #ddd6c8; background: #fff; padding: 14px; }
+    .role-card h2 { margin-top: 0; margin-bottom: 8px; font-size: 24px; }
+    .role-card ul { margin: 0; padding-left: 18px; }
+    .role-card li { margin-bottom: 7px; }
+    .role-card a { color: #135d7a; }
+    .cta-strip { margin-top: 14px; border: 1px dashed #b9b1a5; padding: 12px; background: #fff; }
+    .cta-strip a { color: #135d7a; font-weight: 700; }
+    .site-footer {
+      border-top: 1px solid #d9d2c7;
+      margin-top: 18px;
+      padding-top: 12px;
+      font-size: 13px;
+      color: #5e574e;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .site-footer a { color: #135d7a; }
+    @media (max-width: 880px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    ${renderSiteHeader(appName)}
+    <section class="hero">
+      <h1 style="margin:0 0 10px;">AI Security Monitoring by Role</h1>
+      <p>Choose your operating role to get focused guidance on AI security exposures, response priorities, and evidence-ready remediation paths.</p>
+      <p style="margin:0;color:#5e574e;">These pages are designed for teams that need actionable incident context with clear ownership and measurable outcomes.</p>
+    </section>
+    <section class="grid">${roleBlocks}</section>
+    <section class="cta-strip">
+      <span>Need immediate updates? <a href="/#waitlist-form">Join the waitlist</a> for source-backed AI incident alerts.</span>
+    </section>
+    ${renderSiteFooter()}
+  </main>
+</body>
+</html>`;
+}
+
+export function renderRoleProblemPage(
+  view: RoleProblemPageViewModel,
+  appName: string,
+  gaMeasurementId?: string,
+  siteUrl?: string
+): string {
+  const { page, relatedByRole, relatedByProblem, relatedIncidents, noindex, sourceTag } = view;
+  const seoSnippet = renderSeoMeta({
+    title: page.title,
+    description: page.metaDescription,
+    canonicalPath: page.path,
+    siteUrl,
+    type: 'article',
+    noindex,
+  });
+  const gaSnippet = renderGaSnippet(gaMeasurementId);
+
+  const roleLinks = relatedByRole
+    .map((item) => `<li><a href="${escapeAttr(item.path)}">${toSafeText(item.problemLabel)}</a></li>`)
+    .join('');
+  const problemLinks = relatedByProblem
+    .map((item) => `<li><a href="${escapeAttr(item.path)}">${toSafeText(item.roleLabel)} playbook</a></li>`)
+    .join('');
+  const roleBullets = page.roleBullets.map((item) => `<li>${toSafeText(item)}</li>`).join('');
+  const checklist = page.checklist.map((item) => `<li>${toSafeText(item)}</li>`).join('');
+  const faq = page.faqs
+    .map((item) => `<details><summary>${toSafeText(item.question)}</summary><p>${toSafeText(item.answer)}</p></details>`)
+    .join('');
+  const sections = page.bodySections
+    .map((section) => {
+      const paragraphs = section.paragraphs.map((paragraph) => `<p>${toSafeText(paragraph)}</p>`).join('');
+      return `<section><h2>${toSafeText(section.heading)}</h2>${paragraphs}</section>`;
+    })
+    .join('');
+
+  const incidentCards = relatedIncidents.length
+    ? relatedIncidents
+        .map(
+          (incident) => `<article class="incident-card">
+            <h3><a href="/incidents/${encodeURIComponent(incident.slug)}">${toSafeText(incident.title)}</a></h3>
+            <p>${toSafeText(incident.summary)}</p>
+          </article>`
+        )
+        .join('')
+    : '<p class="muted">No published incidents matched this topic yet. New related incidents will appear here after publication.</p>';
+
+  const breadcrumbJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: appName, item: absoluteUrl(siteUrl, '/') },
+      { '@type': 'ListItem', position: 2, name: 'By Role', item: absoluteUrl(siteUrl, '/for') },
+      { '@type': 'ListItem', position: 3, name: page.h1, item: absoluteUrl(siteUrl, page.path) },
+    ],
+  };
+
+  const faqJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: page.faqs.map((item) => ({
+      '@type': 'Question',
+      name: item.question,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: item.answer,
+      },
+    })),
+  };
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(page.title)}</title>
+  ${seoSnippet}
+  ${gaSnippet}
+  ${jsonLdScript(breadcrumbJsonLd)}
+  ${jsonLdScript(faqJsonLd)}
+  <style>
+    body { font-family: Georgia, "Times New Roman", serif; margin: 0; background:#f7f5ef; color:#1c1915; line-height: 1.45; }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 20px 16px 48px; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom: 16px; gap: 10px; }
+    .brand-link { color: inherit; text-decoration: none; }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:.2px; }
+    .mark { width:28px; height:28px; border-radius:50%; background:#a71f1c; color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; }
+    .nav { display:flex; align-items:center; gap:8px; }
+    .link-btn { border:1px solid #d9d2c7; padding:8px 10px; background:#fff; color:#1c1915; text-decoration:none; font-size:14px; }
+    .cta-nav { background:#135d7a; border-color:#135d7a; color:#fff; font-weight:700; }
+    .layout { display:grid; grid-template-columns: 1.3fr .7fr; gap: 14px; }
+    .article { border:1px solid #ddd6c8; background:#fffdf9; padding:18px; }
+    .sidebar { display:grid; gap:12px; align-content:start; }
+    .card { border:1px solid #ddd6c8; background:#fff; padding:12px; }
+    .muted { color:#5e574e; font-size:14px; }
+    h1 { margin:0 0 12px; font-size:34px; line-height: 1.1; }
+    h2 { font-size:22px; margin:18px 0 10px; }
+    h3 { font-size:18px; margin:0 0 8px; }
+    p { margin:0 0 12px; font-size:18px; }
+    ul { margin:0; padding-left:18px; }
+    li { margin-bottom:8px; }
+    a { color:#135d7a; }
+    details { margin-bottom: 8px; }
+    details p { margin: 8px 0 0; font-size: 16px; }
+    .incident-card { border: 1px solid #e4ddd2; background: #fffdf9; padding: 10px; margin-bottom: 10px; }
+    .incident-card h3 { margin: 0 0 6px; font-size: 16px; }
+    .incident-card p { margin: 0; font-size: 14px; color: #5e574e; }
+    .waitlist-form label { display:block; font-size:14px; margin-bottom:6px; }
+    .waitlist-form input[type='email'], .waitlist-form input[type='text'] {
+      width:100%; box-sizing:border-box; border:1px solid #9e978c; border-radius:3px; padding:10px; margin-bottom:10px; font-size:15px; font-family:inherit; background:#fff;
+    }
+    .waitlist-form button {
+      border:0; background:#a71f1c; color:#fff; padding:11px 14px; font-size:15px; font-weight:700; cursor:pointer; width:100%;
+    }
+    .small { font-size: 13px; color: #4d483f; margin-top: 8px; }
+    .ok { color: #1f6d35; }
+    .err { color: #a71f1c; }
+    .site-footer {
+      border-top: 1px solid #d9d2c7;
+      margin-top: 18px;
+      padding-top: 12px;
+      font-size: 13px;
+      color: #5e574e;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .site-footer a { color: #135d7a; }
+    @media (max-width: 960px) {
+      .layout { grid-template-columns: 1fr; }
+      h1 { font-size: 30px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    ${renderSiteHeader(appName)}
+    <p class="muted"><a href="/for">By Role Hub</a> / ${toSafeText(page.roleLabel)} / ${toSafeText(page.problemLabel)}</p>
+    <section class="layout">
+      <article class="article">
+        <h1>${toSafeText(page.h1)}</h1>
+        <p>${toSafeText(page.intro)}</p>
+        ${sections}
+        <section>
+          <h2>Priorities for ${toSafeText(page.roleLabel)} teams</h2>
+          <ul>${roleBullets}</ul>
+        </section>
+        <section>
+          <h2>Response checklist</h2>
+          <ul>${checklist}</ul>
+        </section>
+        <section>
+          <h2>FAQ</h2>
+          ${faq}
+        </section>
+      </article>
+      <aside class="sidebar">
+        <section class="card waitlist-form">
+          <h3>Get AI incident alerts</h3>
+          <p class="muted">Join the waitlist for source-backed alerts and remediation guidance.</p>
+          <form id="pseo-waitlist-form" method="post" action="/api/waitlist">
+            <label for="pseo-email">Work Email</label>
+            <input id="pseo-email" name="email" type="email" required />
+            <label for="pseo-company">Company (optional)</label>
+            <input id="pseo-company" name="company" type="text" />
+            <input type="hidden" name="role" value="${toSafeText(page.roleLabel)}" />
+            <input type="hidden" name="interests" value="${toSafeText(page.problemLabel)}" />
+            <input type="hidden" name="source" value="${escapeAttr(sourceTag)}" />
+            <input type="hidden" name="utmSource" id="pseoUtmSource" value="" />
+            <input type="hidden" name="utmMedium" id="pseoUtmMedium" value="" />
+            <input type="hidden" name="utmCampaign" id="pseoUtmCampaign" value="" />
+            <input type="hidden" name="referrer" id="pseoReferrer" value="" />
+            <input type="hidden" name="landingPath" id="pseoLandingPath" value="" />
+            <button id="pseo-cta-btn" data-cta="pseo_waitlist_submit" type="submit">Get Notified</button>
+            <p id="pseo-status" class="small" aria-live="polite"></p>
+          </form>
+        </section>
+        <section class="card">
+          <h3>Related for ${toSafeText(page.roleLabel)}</h3>
+          <ul>${roleLinks}</ul>
+        </section>
+        <section class="card">
+          <h3>Same topic, other roles</h3>
+          <ul>${problemLinks}</ul>
+        </section>
+        <section class="card">
+          <h3>Related incidents</h3>
+          ${incidentCards}
+        </section>
+      </aside>
+    </section>
+    ${renderSiteFooter()}
+  </main>
+  <script>
+    const form = document.getElementById('pseo-waitlist-form');
+    const status = document.getElementById('pseo-status');
+    const params = new URLSearchParams(window.location.search);
+    const setField = (id, value) => {
+      const node = document.getElementById(id);
+      if (node) node.value = value || '';
+    };
+    const track = (eventName, payload) => {
+      if (typeof window.gtag === 'function') {
+        window.gtag('event', eventName, payload || {});
+      }
+    };
+
+    setField('pseoUtmSource', params.get('utm_source') || '');
+    setField('pseoUtmMedium', params.get('utm_medium') || '');
+    setField('pseoUtmCampaign', params.get('utm_campaign') || '');
+    setField('pseoReferrer', document.referrer || 'direct');
+    setField('pseoLandingPath', window.location.pathname + window.location.search);
+
+    const cta = document.getElementById('pseo-cta-btn');
+    if (cta) {
+      cta.addEventListener('click', () => {
+        track('cta_click', { cta: cta.dataset.cta || 'pseo_waitlist_submit', location: 'pseo_sidebar' });
+      });
+    }
+
+    if (form) {
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const email = document.getElementById('pseo-email');
+        if (!email || !email.checkValidity()) {
+          if (email) email.reportValidity();
+          if (status) {
+            status.textContent = 'Please enter a valid work email.';
+            status.className = 'small err';
+          }
+          track('waitlist_submit_error', { reason: 'invalid_email', source: '${escapeAttr(sourceTag)}' });
+          return;
+        }
+
+        if (status) {
+          status.textContent = 'Submitting...';
+          status.className = 'small';
+        }
+
+        const formData = new FormData(form);
+        const response = await fetch('/api/waitlist', {
+          method: 'POST',
+          body: formData,
+        });
+        const body = await response.json();
+
+        if (!response.ok) {
+          if (status) {
+            status.textContent = 'Please check your input and try again.';
+            status.className = 'small err';
+          }
+          track('waitlist_submit_error', { reason: 'api_error', source: '${escapeAttr(sourceTag)}' });
+          return;
+        }
+
+        if (body.status === 'already_joined') {
+          if (status) {
+            status.textContent = 'You are already on the waitlist. We will contact you soon.';
+            status.className = 'small ok';
+          }
+          track('waitlist_submit_duplicate', { source: '${escapeAttr(sourceTag)}' });
+          return;
+        }
+
+        if (status) {
+          status.textContent = 'Request received. We will send access details shortly.';
+          status.className = 'small ok';
+        }
+        track('waitlist_submit_success', {
+          source: '${escapeAttr(sourceTag)}',
+          utm_source: formData.get('utmSource') || '',
+          utm_medium: formData.get('utmMedium') || '',
+          utm_campaign: formData.get('utmCampaign') || '',
+        });
+        form.reset();
+      });
+    }
   </script>
 </body>
 </html>`;
