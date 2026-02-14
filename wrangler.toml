@@ -7,11 +7,6 @@ compatibility_date = "2026-02-14"
 [env.dev.vars]
 APP_NAME = "AI Security Incident Radar"
 GA_MEASUREMENT_ID = "G-Z3VJWF5DTV"
-ADMIN_API_TOKEN = ""
-NOTIFY_EMAIL_TO = ""
-RESEND_API_KEY = ""
-TELEGRAM_BOT_TOKEN = ""
-TELEGRAM_CHAT_ID = ""
 
 [[env.dev.d1_databases]]
 binding = "DB"
@@ -24,11 +19,6 @@ migrations_dir = "migrations"
 [env.production.vars]
 APP_NAME = "AI Security Incident Radar"
 GA_MEASUREMENT_ID = "G-Z3VJWF5DTV"
-ADMIN_API_TOKEN = ""
-NOTIFY_EMAIL_TO = ""
-RESEND_API_KEY = ""
-TELEGRAM_BOT_TOKEN = ""
-TELEGRAM_CHAT_ID = ""
 
 [[env.production.d1_databases]]
 binding = "DB"

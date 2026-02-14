@@ -45,10 +45,9 @@ npm run deploy:prod
 ```
 
 ### Admin export access
-Set an admin token in `wrangler.toml`:
-```toml
-[env.production.vars]
-ADMIN_API_TOKEN = "your-long-random-token"
+Set admin token as a Wrangler secret (not in git):
+```bash
+npx wrangler secret put ADMIN_API_TOKEN --env production
 ```
 
 Use it via bearer header:
@@ -67,13 +66,12 @@ Admin page:
 - `https://aisecurityradar.com/admin/signups?token=your-long-random-token`
 
 ### Instant signup notifications
-Optional env vars:
-```toml
-[env.production.vars]
-NOTIFY_EMAIL_TO = "security@aisecurityradar.com"
-RESEND_API_KEY = "re_xxx"
-TELEGRAM_BOT_TOKEN = "123456:abc..."
-TELEGRAM_CHAT_ID = "123456789"
+Optional secret vars:
+```bash
+npx wrangler secret put NOTIFY_EMAIL_TO --env production
+npx wrangler secret put RESEND_API_KEY --env production
+npx wrangler secret put TELEGRAM_BOT_TOKEN --env production
+npx wrangler secret put TELEGRAM_CHAT_ID --env production
 ```
 
 Behavior:
@@ -91,3 +89,9 @@ Behavior:
 - `migrations/0002_waitlist_attribution.sql`
 
 Use `wrangler d1 migrations apply` via npm scripts for ordered execution and tracking.
+
+## Secret Hygiene
+- Never commit API keys or tokens into `wrangler.toml` or source files.
+- Use Wrangler secrets for production values.
+- Use local `.dev.vars` for development only.
+- See `.dev.vars.example` for required local keys.
