@@ -88,22 +88,22 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
 <body>
   <main class="wrap">
     <section class="hero">
-      <h1>Your team will miss AI security incidents. <span class="risk">The cost is waiting too long to react.</span></h1>
-      <p>${appName} monitors emerging AI threats and delivers evidence-backed alerts with concrete actions your team can execute immediately.</p>
-      <p>Join the waitlist to get early access, sample alerts, and priority onboarding.</p>
+      <h1>When AI security incidents break, <span class="risk">speed is the difference between containment and damage.</span></h1>
+      <p>${appName} continuously monitors AI security signals and delivers source-backed alerts with clear next steps your team can act on in minutes.</p>
+      <p>Join the waitlist to get launch access, sample alert packs, and priority onboarding.</p>
     </section>
 
     <section class="grid">
       <article class="panel">
-        <h2>Why teams join</h2>
-        <p>- Detect AI-related security incidents before they become internal fire drills.</p>
-        <p>- Get concise alerts with severity, likely impact, and immediate remediation steps.</p>
-        <p>- Respond faster with source links your security and compliance team can verify.</p>
-        <p>- Receive alerts where your team already works: Email and Telegram.</p>
+        <h2>What you get</h2>
+        <p>- Early warning on AI security incidents relevant to your stack and policies.</p>
+        <p>- Incident briefs with severity, business impact, and immediate remediation actions.</p>
+        <p>- Source citations for fast internal validation and compliance evidence.</p>
+        <p>- Delivery to channels your team already uses: Email and Telegram.</p>
       </article>
 
       <form class="panel" id="waitlist-form" method="post" action="/api/waitlist">
-        <h2>Get early access</h2>
+        <h2>Request access</h2>
         <label for="email">Work Email</label>
         <input id="email" name="email" type="email" required />
 
@@ -123,7 +123,7 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
         <input type="hidden" name="referrer" id="referrer" value="" />
         <input type="hidden" name="landingPath" id="landingPath" value="" />
 
-        <button type="submit">Reserve Early Access</button>
+        <button type="submit">Get Early Access</button>
         <p id="status" class="small" aria-live="polite"></p>
       </form>
     </section>
@@ -169,9 +169,9 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
       }
 
       if (body.status === 'already_joined') {
-        status.textContent = 'You are already on the list. We will contact you soon.';
+        status.textContent = 'You are already on the waitlist. We will contact you soon.';
       } else {
-        status.textContent = 'You are in. We will send onboarding details shortly.';
+        status.textContent = 'Request received. We will send access details shortly.';
         form.reset();
       }
       status.className = 'small ok';
