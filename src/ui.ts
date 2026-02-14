@@ -88,22 +88,22 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
 <body>
   <main class="wrap">
     <section class="hero">
-      <h1>AI security incidents are accelerating. <span class="risk">Most teams hear too late.</span></h1>
-      <p>${appName} tracks live AI security threats and sends your team evidence-backed alerts with immediate next actions.</p>
-      <p>Early access is limited. Join the waitlist to receive sample alerts and pilot priority.</p>
+      <h1>Your team will miss AI security incidents. <span class="risk">The cost is waiting too long to react.</span></h1>
+      <p>${appName} monitors emerging AI threats and delivers evidence-backed alerts with concrete actions your team can execute immediately.</p>
+      <p>Join the waitlist to get early access, sample alerts, and priority onboarding.</p>
     </section>
 
     <section class="grid">
       <article class="panel">
-        <h2>What you get</h2>
-        <p>- AI threat watch from public security sources.</p>
-        <p>- Alert includes impact, severity, and remedy checklist.</p>
-        <p>- Evidence links attached to each incident.</p>
-        <p>- Channels: Email and Telegram.</p>
+        <h2>Why teams join</h2>
+        <p>- Detect AI-related security incidents before they become internal fire drills.</p>
+        <p>- Get concise alerts with severity, likely impact, and immediate remediation steps.</p>
+        <p>- Respond faster with source links your security and compliance team can verify.</p>
+        <p>- Receive alerts where your team already works: Email and Telegram.</p>
       </article>
 
       <form class="panel" id="waitlist-form" method="post" action="/api/waitlist">
-        <h2>Join the waitlist</h2>
+        <h2>Get early access</h2>
         <label for="email">Work Email</label>
         <input id="email" name="email" type="email" required />
 
@@ -113,7 +113,7 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
         <label for="role">Role</label>
         <input id="role" name="role" type="text" required />
 
-        <label for="interests">What AI security risk worries you most?</label>
+        <label for="interests">What risk do you need help monitoring right now?</label>
         <textarea id="interests" name="interests" rows="3" required></textarea>
 
         <input type="hidden" name="source" value="landing-page" />
@@ -123,7 +123,7 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
         <input type="hidden" name="referrer" id="referrer" value="" />
         <input type="hidden" name="landingPath" id="landingPath" value="" />
 
-        <button type="submit">Request Early Access</button>
+        <button type="submit">Reserve Early Access</button>
         <p id="status" class="small" aria-live="polite"></p>
       </form>
     </section>
@@ -169,9 +169,9 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
       }
 
       if (body.status === 'already_joined') {
-        status.textContent = 'You are already on the waitlist. We will contact you soon.';
+        status.textContent = 'You are already on the list. We will contact you soon.';
       } else {
-        status.textContent = 'You are in. We will send pilot details shortly.';
+        status.textContent = 'You are in. We will send onboarding details shortly.';
         form.reset();
       }
       status.className = 'small ok';
