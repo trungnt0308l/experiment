@@ -90,7 +90,7 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
     <section class="hero">
       <h1>AI security incidents are accelerating. <span class="risk">Most teams hear too late.</span></h1>
       <p>${appName} tracks live AI security threats and sends your team evidence-backed alerts with immediate next actions.</p>
-      <p>Phase 0 access is limited. Join the early waitlist to receive sample alerts and pilot priority.</p>
+      <p>Early access is limited. Join the waitlist to receive sample alerts and pilot priority.</p>
     </section>
 
     <section class="grid">
@@ -99,7 +99,7 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
         <p>- AI threat watch from public security sources.</p>
         <p>- Alert includes impact, severity, and remedy checklist.</p>
         <p>- Evidence links attached to each incident.</p>
-        <p>- Phase 1 channels: Email and Telegram.</p>
+        <p>- Channels: Email and Telegram.</p>
       </article>
 
       <form class="panel" id="waitlist-form" method="post" action="/api/waitlist">
