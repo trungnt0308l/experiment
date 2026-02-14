@@ -1,7 +1,14 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
-import { renderLandingPage, renderPrivacyPage, renderSecurityPage, renderTermsPage } from './ui';
+import {
+  renderIncidentDetailPage,
+  renderIncidentsPage,
+  renderLandingPage,
+  renderPrivacyPage,
+  renderSecurityPage,
+  renderTermsPage,
+} from './ui';
 
 export type EnvBindings = {
   APP_NAME?: string;
@@ -40,6 +47,82 @@ type SignupRow = {
   landing_path: string | null;
   created_at: string;
 };
+
+type IncidentSource = {
+  label: string;
+  url: string;
+};
+
+type IncidentEntry = {
+  slug: string;
+  title: string;
+  incidentDate: string;
+  publishedDate: string;
+  summary: string;
+  impact: string;
+  remedy: string[];
+  sources: IncidentSource[];
+};
+
+const recentIncidents: IncidentEntry[] = [
+  {
+    slug: 'm365-copilot-echoleak-cve-2025-32711',
+    title: 'Microsoft 365 Copilot EchoLeak (CVE-2025-32711)',
+    incidentDate: 'May 31, 2025',
+    publishedDate: 'May 31, 2025',
+    summary:
+      'Aim Labs reported a zero-click prompt-injection chain in Microsoft 365 Copilot that could exfiltrate sensitive enterprise context without explicit user interaction.',
+    impact:
+      'Potential unauthorized disclosure of internal enterprise data across Microsoft 365 context windows.',
+    remedy: [
+      'Apply Microsoft June 2025 security updates for Copilot-related components.',
+      'Reduce Copilot access scope for high-sensitivity repositories and mailboxes.',
+      'Add detection for suspicious prompt patterns and anomalous outbound exfiltration behavior.',
+    ],
+    sources: [
+      { label: 'Aim Security EchoLeak disclosure', url: 'https://www.aim.security/post/echoleak-blogpost' },
+      { label: 'EchoLeak paper (arXiv)', url: 'https://arxiv.org/abs/2509.10540' },
+    ],
+  },
+  {
+    slug: 'copilot-reprompt-single-click-exfiltration',
+    title: 'Microsoft Copilot Reprompt single-click exfiltration',
+    incidentDate: 'January 14, 2026',
+    publishedDate: 'January 14, 2026',
+    summary:
+      'Varonis Threat Labs disclosed Reprompt, a single-click chain that used Copilot URL prompt parameters and follow-up request techniques for stealthy data exfiltration.',
+    impact:
+      'Session-level data exposure risk from a single malicious link click in vulnerable Copilot contexts.',
+    remedy: [
+      'Confirm January 2026 Microsoft patches are applied in affected environments.',
+      'Block and monitor suspicious Copilot URL patterns with embedded prompt parameters.',
+      'Harden anti-phishing controls and user awareness for AI-assisted link payloads.',
+    ],
+    sources: [
+      { label: 'Varonis Reprompt disclosure', url: 'https://www.varonis.com/blog/reprompt' },
+      { label: 'SecurityWeek coverage', url: 'https://www.securityweek.com/new-reprompt-attack-silently-siphons-microsoft-copilot-data/' },
+    ],
+  },
+  {
+    slug: 'deepseek-cloud-db-exposure',
+    title: 'DeepSeek cloud database exposure',
+    incidentDate: 'January 2025',
+    publishedDate: 'March 18, 2025',
+    summary:
+      'Wiz research identified a publicly exposed DeepSeek ClickHouse instance with sensitive records, including logs and keys; the instance was secured after disclosure.',
+    impact:
+      'Risk of large-scale leakage of user-related and operational data due to cloud misconfiguration.',
+    remedy: [
+      'Enforce private network boundaries and IP restrictions for production databases.',
+      'Require strong authentication and disable default/no-password access modes.',
+      'Continuously audit internet-exposed database services with alerting.',
+    ],
+    sources: [
+      { label: 'Wiz + ClickHouse post-incident analysis', url: 'https://www.wiz.io/blog/clickhouse-and-wiz' },
+      { label: 'The Verge incident summary', url: 'https://www.theverge.com/news/603163/deepseek-breach-ai-security-database-exposed' },
+    ],
+  },
+];
 
 const schema = z.object({
   email: z.string().email().max(200),
@@ -347,6 +430,16 @@ export function createApp() {
   app.get('/', (c) => {
     const appName = c.env.APP_NAME ?? 'AI Security Incident Radar';
     return c.html(renderLandingPage(appName, c.env.GA_MEASUREMENT_ID));
+  });
+
+  app.get('/incidents', (c) => c.html(renderIncidentsPage(recentIncidents)));
+  app.get('/incidents/:slug', (c) => {
+    const slug = c.req.param('slug');
+    const incident = recentIncidents.find((item) => item.slug === slug);
+    if (!incident) {
+      return c.text('Incident not found', 404);
+    }
+    return c.html(renderIncidentDetailPage(incident, recentIncidents));
   });
 
   app.get('/privacy', (c) => c.html(renderPrivacyPage()));

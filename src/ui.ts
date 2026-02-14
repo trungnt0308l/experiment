@@ -1,3 +1,19 @@
+export type IncidentSource = {
+  label: string;
+  url: string;
+};
+
+export type IncidentEntry = {
+  slug: string;
+  title: string;
+  incidentDate: string;
+  publishedDate: string;
+  summary: string;
+  impact: string;
+  remedy: string[];
+  sources: IncidentSource[];
+};
+
 export function renderLandingPage(appName: string, gaMeasurementId?: string): string {
   const gaSnippet = gaMeasurementId
     ? `<script async src="https://www.googletagmanager.com/gtag/js?id=${gaMeasurementId}"></script>
@@ -40,8 +56,10 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
       justify-content: space-between;
       align-items: center;
       margin-bottom: 14px;
+      gap: 10px;
     }
     .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .2px; }
+    .nav { display: flex; align-items: center; gap: 8px; }
     .mark {
       width: 28px;
       height: 28px;
@@ -184,7 +202,10 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
   <main class="wrap">
     <header class="topbar">
       <div class="brand"><span class="mark">ASR</span> ${appName}</div>
-      <a class="link-btn" href="#waitlist-form">Get Access</a>
+      <div class="nav">
+        <a class="link-btn" href="/incidents">Recent Incidents</a>
+        <a class="link-btn" href="#waitlist-form">Get Access</a>
+      </div>
     </header>
 
     <section class="hero">
@@ -359,6 +380,91 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
       status.className = 'small ok';
     });
   </script>
+</body>
+</html>`;
+}
+
+export function renderIncidentsPage(incidents: IncidentEntry[]): string {
+  const cards = incidents
+    .map(
+      (item) => `<article style="border:1px solid #ddd6c8;background:#fffdf9;padding:16px;margin-bottom:12px;">
+        <h2 style="margin:0 0 8px;font-size:24px;"><a href="/incidents/${item.slug}" style="color:#1a1815;text-decoration:none;">${item.title}</a></h2>
+        <p style="margin:0 0 8px;font-size:14px;color:#5f584f;">Incident date: ${item.incidentDate} | Published: ${item.publishedDate}</p>
+        <p style="margin:0 0 8px;">${item.summary}</p>
+        <p style="margin:0;"><a href="/incidents/${item.slug}" style="color:#135d7a;">Read details</a></p>
+      </article>`
+    )
+    .join('');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recent AI Security Incidents</title>
+  <style>
+    body { font-family: Georgia, "Times New Roman", serif; margin: 0; background:#f7f5ef; color:#1c1915; }
+    main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { margin-top: 0; }
+    .back { margin-bottom: 14px; display:inline-block; color:#135d7a; }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="back" href="/">Back to homepage</a>
+    <h1>Recent AI Security Incidents</h1>
+    <p>Curated incidents with impact and remediation notes.</p>
+    ${cards}
+  </main>
+</body>
+</html>`;
+}
+
+export function renderIncidentDetailPage(incident: IncidentEntry, allIncidents: IncidentEntry[]): string {
+  const remedies = incident.remedy.map((step) => `<li>${step}</li>`).join('');
+  const sourceLinks = incident.sources
+    .map((source) => `<li><a href="${source.url}" target="_blank" rel="noopener noreferrer">${source.label}</a></li>`)
+    .join('');
+  const otherItems = allIncidents
+    .filter((item) => item.slug !== incident.slug)
+    .slice(0, 3)
+    .map((item) => `<li><a href="/incidents/${item.slug}">${item.title}</a></li>`)
+    .join('');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${incident.title}</title>
+  <style>
+    body { font-family: Georgia, "Times New Roman", serif; margin: 0; background:#f7f5ef; color:#1c1915; }
+    main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; }
+    article { border:1px solid #ddd6c8;background:#fffdf9;padding:18px; }
+    h1 { margin-top: 0; }
+    .meta { color:#5f584f; font-size:14px; margin-bottom: 10px; }
+    a { color:#135d7a; }
+  </style>
+</head>
+<body>
+  <main>
+    <p><a href="/incidents">Back to incidents</a></p>
+    <article>
+      <h1>${incident.title}</h1>
+      <p class="meta">Incident date: ${incident.incidentDate} | Published: ${incident.publishedDate}</p>
+      <p>${incident.summary}</p>
+      <h2>Impact</h2>
+      <p>${incident.impact}</p>
+      <h2>Recommended Response</h2>
+      <ul>${remedies}</ul>
+      <h2>Sources</h2>
+      <ul>${sourceLinks}</ul>
+    </article>
+    <section style="margin-top:14px;">
+      <h3>More incidents</h3>
+      <ul>${otherItems}</ul>
+    </section>
+  </main>
 </body>
 </html>`;
 }

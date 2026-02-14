@@ -36,6 +36,19 @@ describe('waitlist endpoint', () => {
     expect(security.status).toBe(200);
   });
 
+  test('renders incidents pages', async () => {
+    const app = createApp();
+    const index = await app.request('http://localhost/incidents', undefined, makeEnv());
+    expect(index.status).toBe(200);
+
+    const detail = await app.request(
+      'http://localhost/incidents/m365-copilot-echoleak-cve-2025-32711',
+      undefined,
+      makeEnv()
+    );
+    expect(detail.status).toBe(200);
+  });
+
   test('rejects unauthorized admin access', async () => {
     const app = createApp();
     const res = await app.request('http://localhost/api/admin/signups', undefined, makeEnv());

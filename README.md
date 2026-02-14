@@ -6,6 +6,7 @@ Current production status:
 - Waitlist endpoint: `POST /api/waitlist`
 - Health check: `/health`
 - Legal pages: `/privacy`, `/terms`, `/security`
+- Incident content pages: `/incidents` and `/incidents/:slug`
 - Admin exports: `/api/admin/signups` and `/admin/signups` (token-protected)
 - D1-backed persistence enabled
 - Attribution tracking fields: `utmSource`, `utmMedium`, `utmCampaign`, `referrer`, `landingPath`
