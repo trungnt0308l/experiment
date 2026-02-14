@@ -176,6 +176,32 @@ export function resolveScheduledSources(scheduledTimeMs: number, splitEnabled: b
   return new Set(filtered);
 }
 
+export function resolveScheduledSourcesFromCron(cron: string | undefined, enableHn: boolean): ReadonlySet<SourceKey> | null {
+  const normalized = cron?.trim() ?? '';
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === '0 * * * *') {
+    return new Set(['nvd']);
+  }
+  if (normalized === '10 * * * *') {
+    return new Set(['ghsa']);
+  }
+  if (normalized === '20 * * * *') {
+    return new Set(['cisa_kev']);
+  }
+  if (normalized === '30 * * * *') {
+    return new Set(['rss']);
+  }
+  if (normalized === '40 * * * *') {
+    return new Set(['euvd']);
+  }
+  if (normalized === '50 * * * *') {
+    return enableHn ? new Set(['hn']) : new Set();
+  }
+  return null;
+}
+
 function stripTags(input: string): string {
   return input.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }

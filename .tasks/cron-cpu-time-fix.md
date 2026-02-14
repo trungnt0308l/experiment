@@ -1,21 +1,21 @@
-# Task: cron-cpu-time-fix
+ï»¿# Task: cron-cpu-time-fix
 
 ## Meta
 - **Status**: REVIEW
 - **Branch**: feat/cron-cpu-time-fix
 - **PR**: (link once created)
 - **Created**: 2026-02-14 22:19:56
-- **Last Updated**: 2026-02-14 22:24:02
+- **Last Updated**: 2026-02-14 22:27:36
 
 ## Objective
 Reduce cronjob CPU-time failures by splitting heavy ingestion work into bounded chunks per run.
 
 ## Plan
-- [x] Step 1 — Inspect current cron/manual ingestion flow and identify CPU hotspots
-- [x] Step 2 — Implement chunking/time-budget caps to split work across runs
-- [x] Step 3 — Write/update tests for chunking behavior and limits
-- [x] Step 4 — Verification
-- [x] Step 5 — PR self-review
+- [x] Step 1 â€” Inspect current cron/manual ingestion flow and identify CPU hotspots
+- [x] Step 2 â€” Implement chunking/time-budget caps to split work across runs
+- [x] Step 3 â€” Write/update tests for chunking behavior and limits
+- [x] Step 4 â€” Verification
+- [x] Step 5 â€” PR self-review
 
 ## Progress Log
 - [2026-02-14 22:19:56] Started task. Checked out branch `feat/cron-cpu-time-fix`.
@@ -25,6 +25,7 @@ Reduce cronjob CPU-time failures by splitting heavy ingestion work into bounded 
 - [2026-02-14 22:22:46] Ran verification: `npm run typecheck` and `npm run test` both passing.
 - [2026-02-14 22:22:46] Completed self-review checklist with no blocking issues.
 - [2026-02-14 22:24:02] Committed changes (`cf7e2a1`) and pushed branch `feat/cron-cpu-time-fix` to origin.
+- [2026-02-14 22:27:36] Revised cron strategy to per-source hourly slots and added Worker observability logs config in `wrangler.toml`.
 
 ## Verification Checklist
 - [x] All acceptance criteria met

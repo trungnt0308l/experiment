@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2026-02-14"
 
 [triggers]
-crons = ["*/30 * * * *"]
+crons = ["0 * * * *", "10 * * * *", "20 * * * *", "30 * * * *", "40 * * * *", "50 * * * *"]
 
 [env.dev]
 
@@ -56,3 +56,11 @@ binding = "DB"
 database_name = "ai-security-radar"
 database_id = "389bd183-d056-405d-8e25-b1d4dd7b55fc"
 migrations_dir = "migrations"
+
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
