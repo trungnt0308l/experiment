@@ -39,6 +39,7 @@ type DraftPost = {
 
 export type IngestionRunResult = {
   fetched: number;
+  processed: number;
   relevant: number;
   inserted: number;
   deduped: number;
@@ -52,6 +53,14 @@ export type RuntimeCaps = {
   hnMaxItems: number;
   llmDedupeMaxCalls: number;
   llmEnrichMaxCalls: number;
+  ingestionMaxEventsPerRun: number;
+};
+
+type SourceKey = SourceEvent['source'];
+
+export type IngestionRunOptions = {
+  sourceAllowlist?: ReadonlySet<SourceKey>;
+  maxEventsToProcess?: number;
 };
 
 type FetchLike = typeof fetch;
@@ -146,7 +155,25 @@ export function resolveRuntimeCaps(env: EnvBindings): RuntimeCaps {
     hnMaxItems: clampInt(env.HN_MAX_ITEMS, 8, 0, 20),
     llmDedupeMaxCalls: clampInt(env.LLM_DEDUPE_MAX_CALLS, 6, 0, 12),
     llmEnrichMaxCalls: clampInt(env.LLM_ENRICH_MAX_CALLS, 2, 0, 3),
+    ingestionMaxEventsPerRun: clampInt(env.INGESTION_MAX_EVENTS_PER_RUN, 36, 5, 120),
   };
+}
+
+const SCHEDULED_SOURCE_BATCHES: SourceKey[][] = [
+  ['nvd', 'ghsa', 'cisa_kev'],
+  ['rss', 'euvd', 'hn'],
+];
+
+const SCHEDULED_SLOT_MS = 30 * 60 * 1000;
+
+export function resolveScheduledSources(scheduledTimeMs: number, splitEnabled: boolean, enableHn: boolean): ReadonlySet<SourceKey> {
+  if (!splitEnabled) {
+    return new Set(enableHn ? ['hn', 'nvd', 'rss', 'ghsa', 'cisa_kev', 'euvd'] : ['nvd', 'rss', 'ghsa', 'cisa_kev', 'euvd']);
+  }
+  const slot = Math.floor(scheduledTimeMs / SCHEDULED_SLOT_MS);
+  const batch = SCHEDULED_SOURCE_BATCHES[slot % SCHEDULED_SOURCE_BATCHES.length] ?? [];
+  const filtered = batch.filter((source) => source !== 'hn' || enableHn);
+  return new Set(filtered);
 }
 
 function stripTags(input: string): string {
@@ -891,13 +918,37 @@ export async function createDraftFromIngestionEvent(
   return storeDraft(env.DB, eventId, draft, nowIso);
 }
 
+function prioritizeEventsForProcessing(events: SourceEvent[], maxToProcess: number): SourceEvent[] {
+  if (maxToProcess <= 0) {
+    return [];
+  }
+  return [...events]
+    .sort((a, b) => {
+      const aMs = parseDateSafe(a.publishedAt);
+      const bMs = parseDateSafe(b.publishedAt);
+      if (aMs === null && bMs === null) {
+        return 0;
+      }
+      if (aMs === null) {
+        return 1;
+      }
+      if (bMs === null) {
+        return -1;
+      }
+      return bMs - aMs;
+    })
+    .slice(0, maxToProcess);
+}
+
 export async function runIngestionPipeline(
   env: EnvBindings,
-  fetchFn: FetchLike = fetch
+  fetchFn: FetchLike = fetch,
+  options: IngestionRunOptions = {}
 ): Promise<IngestionRunResult> {
   if (!env.DB) {
     return {
       fetched: 0,
+      processed: 0,
       relevant: 0,
       inserted: 0,
       deduped: 0,
@@ -914,26 +965,60 @@ export async function runIngestionPipeline(
   const caps = resolveRuntimeCaps(env);
   const errors: string[] = [];
   const enableHn = (env.ENABLE_HN_SOURCE ?? 'true').toLowerCase() === 'true';
+  const sourceAllowlist = options.sourceAllowlist;
   const llmDedupeMaxCalls = caps.llmDedupeMaxCalls;
   let llmDedupeCalls = 0;
   const llmEnrichCalls = 0;
   const knownEvents = await recentStoredEvents(env.DB, 120);
-  const sourceResults = await Promise.allSettled([
-    enableHn ? fetchHnEvents(fetchFn, caps.hnMaxItems) : Promise.resolve([]),
-    fetchNvdEvents(fetchFn, env.NVD_API_KEY),
-    fetchCisaKevEvents(fetchFn),
-    fetchEuvdEvents(fetchFn),
-    fetchGitHubAdvisoryEvents(fetchFn, env.GITHUB_API_TOKEN),
-    fetchRssEvents(fetchFn, env),
-  ]);
+
+  const sourceTasks: Array<{ name: SourceKey; run: Promise<SourceEvent[]> }> = [];
+  const includeSource = (source: SourceKey): boolean => !sourceAllowlist || sourceAllowlist.has(source);
+
+  if (includeSource('hn') && enableHn) {
+    sourceTasks.push({ name: 'hn', run: fetchHnEvents(fetchFn, caps.hnMaxItems) });
+  }
+  if (includeSource('nvd')) {
+    sourceTasks.push({ name: 'nvd', run: fetchNvdEvents(fetchFn, env.NVD_API_KEY) });
+  }
+  if (includeSource('cisa_kev')) {
+    sourceTasks.push({ name: 'cisa_kev', run: fetchCisaKevEvents(fetchFn) });
+  }
+  if (includeSource('euvd')) {
+    sourceTasks.push({ name: 'euvd', run: fetchEuvdEvents(fetchFn) });
+  }
+  if (includeSource('ghsa')) {
+    sourceTasks.push({ name: 'ghsa', run: fetchGitHubAdvisoryEvents(fetchFn, env.GITHUB_API_TOKEN) });
+  }
+  if (includeSource('rss')) {
+    sourceTasks.push({ name: 'rss', run: fetchRssEvents(fetchFn, env) });
+  }
+
+  const sourceResults = await Promise.allSettled(sourceTasks.map((task) => task.run));
 
   const rawEvents: SourceEvent[] = [];
-  for (const result of sourceResults) {
+  for (let i = 0; i < sourceResults.length; i += 1) {
+    const result = sourceResults[i];
+    const sourceName = sourceTasks[i]?.name ?? 'unknown';
     if (result.status === 'fulfilled') {
       rawEvents.push(...result.value);
     } else {
-      errors.push(result.reason instanceof Error ? result.reason.message : 'unknown source error');
+      const message = result.reason instanceof Error ? result.reason.message : 'unknown source error';
+      errors.push(`${sourceName}: ${message}`);
     }
+  }
+
+  const maxEventsToProcess = Math.max(
+    1,
+    Math.min(
+      options.maxEventsToProcess ?? caps.ingestionMaxEventsPerRun,
+      caps.ingestionMaxEventsPerRun
+    )
+  );
+  const queuedEvents = prioritizeEventsForProcessing(rawEvents, maxEventsToProcess);
+  if (rawEvents.length > queuedEvents.length) {
+    errors.push(
+      `Run cap hit: processed ${queuedEvents.length}/${rawEvents.length} events (set INGESTION_MAX_EVENTS_PER_RUN to tune)`
+    );
   }
 
   const seenFingerprints = new Set<string>();
@@ -942,7 +1027,7 @@ export async function runIngestionPipeline(
   let deduped = 0;
   let draftsCreated = 0;
 
-  for (const raw of rawEvents) {
+  for (const raw of queuedEvents) {
     try {
       const stored = await toStoredEvent(raw);
       if (!stored) {
@@ -1025,6 +1110,7 @@ export async function runIngestionPipeline(
 
   return {
     fetched: rawEvents.length,
+    processed: queuedEvents.length,
     relevant,
     inserted,
     deduped,

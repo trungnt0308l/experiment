@@ -28,6 +28,8 @@ export type EnvBindings = {
   LLM_ENRICH_ENABLED?: string;
   LLM_DEDUPE_MAX_CALLS?: string;
   LLM_ENRICH_MAX_CALLS?: string;
+  INGESTION_MAX_EVENTS_PER_RUN?: string;
+  CRON_SOURCE_SPLIT_ENABLED?: string;
   HN_MAX_ITEMS?: string;
   RSS_FEEDS?: string;
   MAX_EVENT_AGE_DAYS?: string;

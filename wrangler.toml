@@ -22,6 +22,8 @@ LLM_DEDUPE_ENABLED = "true"
 LLM_ENRICH_ENABLED = "true"
 LLM_DEDUPE_MAX_CALLS = "6"
 LLM_ENRICH_MAX_CALLS = "2"
+INGESTION_MAX_EVENTS_PER_RUN = "36"
+CRON_SOURCE_SPLIT_ENABLED = "true"
 
 [[env.dev.d1_databases]]
 binding = "DB"
@@ -46,6 +48,8 @@ LLM_DEDUPE_ENABLED = "true"
 LLM_ENRICH_ENABLED = "true"
 LLM_DEDUPE_MAX_CALLS = "6"
 LLM_ENRICH_MAX_CALLS = "2"
+INGESTION_MAX_EVENTS_PER_RUN = "36"
+CRON_SOURCE_SPLIT_ENABLED = "true"
 
 [[env.production.d1_databases]]
 binding = "DB"

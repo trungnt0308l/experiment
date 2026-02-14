@@ -3,6 +3,7 @@ import {
   isEventRecent,
   isLikelyAiSecurityIncident,
   parseRssOrAtom,
+  resolveScheduledSources,
   resolveRuntimeCaps,
   runIngestionPipeline,
   shouldAutoPublish,
@@ -134,6 +135,7 @@ describe('ingestion helpers', () => {
       hnMaxItems: 8,
       llmDedupeMaxCalls: 6,
       llmEnrichMaxCalls: 2,
+      ingestionMaxEventsPerRun: 36,
     });
 
     expect(
@@ -141,11 +143,26 @@ describe('ingestion helpers', () => {
         HN_MAX_ITEMS: '999',
         LLM_DEDUPE_MAX_CALLS: '-1',
         LLM_ENRICH_MAX_CALLS: '50',
+        INGESTION_MAX_EVENTS_PER_RUN: '999',
       })
     ).toEqual({
       hnMaxItems: 20,
       llmDedupeMaxCalls: 0,
       llmEnrichMaxCalls: 3,
+      ingestionMaxEventsPerRun: 120,
     });
+  });
+
+  test('splits scheduled sources by timeslot and honors HN toggle', () => {
+    const slot0 = resolveScheduledSources(0, true, true);
+    const slot1 = resolveScheduledSources(30 * 60 * 1000, true, true);
+    expect(Array.from(slot0).sort()).toEqual(['cisa_kev', 'ghsa', 'nvd']);
+    expect(Array.from(slot1).sort()).toEqual(['euvd', 'hn', 'rss']);
+
+    const slot1WithoutHn = resolveScheduledSources(30 * 60 * 1000, true, false);
+    expect(Array.from(slot1WithoutHn).sort()).toEqual(['euvd', 'rss']);
+
+    const allWhenDisabled = resolveScheduledSources(0, false, false);
+    expect(Array.from(allWhenDisabled).sort()).toEqual(['cisa_kev', 'euvd', 'ghsa', 'nvd', 'rss']);
   });
 });

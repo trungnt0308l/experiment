@@ -122,11 +122,18 @@ Feed overrides:
   - `LLM_DEDUPE_MAX_CALLS` per ingestion run (default `6`)
   - `LLM_ENRICH_ENABLED=true|false`
   - `LLM_ENRICH_MAX_CALLS` auto-publish enrich calls per run (default `2`)
+- CPU controls:
+  - `INGESTION_MAX_EVENTS_PER_RUN` hard cap on events processed per run (default `36`)
+  - `CRON_SOURCE_SPLIT_ENABLED=true|false` alternates cron source groups every 30-minute slot (default `true`)
 - Set `MAX_EVENT_AGE_DAYS` (default `60`) to exclude stale incidents from draft generation.
 - Relevance gate is strict by default: HN/RSS items must include both AI and security signals.
 - HN uses an incident-only gate (CVE/exploit/breach/prompt-injection patterns) and excludes common HN noise patterns (Show HN, benchmarks, generic launches).
 - Set `HN_MAX_ITEMS` (default `8`) to cap HN subrequests and avoid Worker resource-limit errors.
 - Set `ENABLE_HN_SOURCE=false` to disable HN ingestion temporarily.
+- Cron split groups:
+  - Slot A: `nvd`, `ghsa`, `cisa_kev`
+  - Slot B: `rss`, `euvd`, `hn`
+  - This keeps each cron execution smaller while still covering all sources across consecutive runs.
 - Auto-publish rule: incidents from trusted sources in `AUTO_PUBLISH_TRUSTED_SOURCES` (default `nvd`) and meeting `AUTO_PUBLISH_MIN_SEVERITY` (default `high`) are published immediately.
 
 Behavior:
