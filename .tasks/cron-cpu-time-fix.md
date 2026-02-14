@@ -5,7 +5,7 @@
 - **Branch**: feat/cron-cpu-time-fix
 - **PR**: (link once created)
 - **Created**: 2026-02-14 22:19:56
-- **Last Updated**: 2026-02-14 22:22:46
+- **Last Updated**: 2026-02-14 22:24:02
 
 ## Objective
 Reduce cronjob CPU-time failures by splitting heavy ingestion work into bounded chunks per run.
@@ -18,14 +18,13 @@ Reduce cronjob CPU-time failures by splitting heavy ingestion work into bounded 
 - [x] Step 5 — PR self-review
 
 ## Progress Log
-- [2026-02-14 22:19:56] Started task. Checked out branch eat/cron-cpu-time-fix.
-- [2026-02-14 22:22:46] Identified single-run all-source fan-out as CPU hotspot in scheduled ingestion path (src/index.ts -> unIngestionPipeline).
+- [2026-02-14 22:19:56] Started task. Checked out branch `feat/cron-cpu-time-fix`.
+- [2026-02-14 22:22:46] Identified single-run all-source fan-out as CPU hotspot in scheduled ingestion path (`src/index.ts` -> `runIngestionPipeline`).
 - [2026-02-14 22:22:46] Implemented scheduled source split + per-run ingestion processing cap with new env toggles.
-- [2026-02-14 22:22:46] Updated docs/config defaults (README.md, wrangler.toml, .dev.vars.example) and added PRD changelog entry.
-- [2026-02-14 22:22:46] Ran verification: 
-pm run typecheck and 
-pm run test both passing.
+- [2026-02-14 22:22:46] Updated docs/config defaults (`README.md`, `wrangler.toml`, `.dev.vars.example`) and added PRD changelog entry.
+- [2026-02-14 22:22:46] Ran verification: `npm run typecheck` and `npm run test` both passing.
 - [2026-02-14 22:22:46] Completed self-review checklist with no blocking issues.
+- [2026-02-14 22:24:02] Committed changes (`cf7e2a1`) and pushed branch `feat/cron-cpu-time-fix` to origin.
 
 ## Verification Checklist
 - [x] All acceptance criteria met
