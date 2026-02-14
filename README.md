@@ -87,7 +87,7 @@ npx wrangler secret put OPENAI_API_KEY --env production
 ```
 
 ### Phase 1 ingestion pipeline (HN + NVD + CISA KEV + EUVD + GHSA + RSS)
-Data ingestion runs on Worker cron (6 hourly slots via `wrangler.toml` triggers, one source per run) and can be triggered manually.
+Data ingestion runs on Worker cron (5 hourly slots via `wrangler.toml` triggers due plan limits) and can be triggered manually.
 
 Manual trigger:
 ```bash
@@ -135,9 +135,8 @@ Feed overrides:
   - `10 * * * *` -> `ghsa`
   - `20 * * * *` -> `cisa_kev`
   - `30 * * * *` -> `rss`
-  - `40 * * * *` -> `euvd`
-  - `50 * * * *` -> `hn`
-  - This isolates each run to one source and reduces CPU spikes.
+  - `40 * * * *` -> `euvd` (+ `hn` when `ENABLE_HN_SOURCE=true`)
+  - This keeps triggers within the 5-cron account limit while reducing CPU spikes.
 - Auto-publish rule: incidents from trusted sources in `AUTO_PUBLISH_TRUSTED_SOURCES` (default `nvd`) and meeting `AUTO_PUBLISH_MIN_SEVERITY` (default `high`) are published immediately.
 
 Behavior:

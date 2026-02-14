@@ -1,11 +1,11 @@
 ﻿# Task: cron-cpu-time-fix
 
 ## Meta
-- **Status**: REVIEW
+- **Status**: DONE
 - **Branch**: feat/cron-cpu-time-fix
 - **PR**: (link once created)
 - **Created**: 2026-02-14 22:19:56
-- **Last Updated**: 2026-02-14 22:27:36
+- **Last Updated**: 2026-02-14 22:35:20
 
 ## Objective
 Reduce cronjob CPU-time failures by splitting heavy ingestion work into bounded chunks per run.
@@ -26,12 +26,15 @@ Reduce cronjob CPU-time failures by splitting heavy ingestion work into bounded 
 - [2026-02-14 22:22:46] Completed self-review checklist with no blocking issues.
 - [2026-02-14 22:24:02] Committed changes (`cf7e2a1`) and pushed branch `feat/cron-cpu-time-fix` to origin.
 - [2026-02-14 22:27:36] Revised cron strategy to per-source hourly slots and added Worker observability logs config in `wrangler.toml`.
+- [2026-02-14 22:32:44] Attempted production deploy with 6 cron expressions; Cloudflare rejected with account limit of 5 cron triggers.
+- [2026-02-14 22:34:10] Updated schedule to 5 cron triggers and combined optional HN processing into `40 * * * *` slot when enabled.
+- [2026-02-14 22:35:20] Verified (`npm run typecheck`, `npm run test`) and deployed successfully to production (version `58698986-6794-4bb7-aae6-40dc87af01b4`).
 
 ## Verification Checklist
 - [x] All acceptance criteria met
 - [x] Tests pass
 - [x] No lint/type errors
-- [ ] Manual verification documented and executed
+- [x] Manual verification documented and executed
 - [x] PRD updated if scope changed
 
 ## Issues / Blockers

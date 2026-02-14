@@ -172,9 +172,9 @@ describe('ingestion helpers', () => {
     expect(Array.from(resolveScheduledSourcesFromCron('10 * * * *', true) ?? []).sort()).toEqual(['ghsa']);
     expect(Array.from(resolveScheduledSourcesFromCron('20 * * * *', true) ?? []).sort()).toEqual(['cisa_kev']);
     expect(Array.from(resolveScheduledSourcesFromCron('30 * * * *', true) ?? []).sort()).toEqual(['rss']);
-    expect(Array.from(resolveScheduledSourcesFromCron('40 * * * *', true) ?? []).sort()).toEqual(['euvd']);
+    expect(Array.from(resolveScheduledSourcesFromCron('40 * * * *', true) ?? []).sort()).toEqual(['euvd', 'hn']);
+    expect(Array.from(resolveScheduledSourcesFromCron('40 * * * *', false) ?? []).sort()).toEqual(['euvd']);
     expect(Array.from(resolveScheduledSourcesFromCron('50 * * * *', true) ?? []).sort()).toEqual(['hn']);
-    expect(Array.from(resolveScheduledSourcesFromCron('50 * * * *', false) ?? []).sort()).toEqual([]);
     expect(resolveScheduledSourcesFromCron('*/30 * * * *', true)).toBeNull();
   });
 });

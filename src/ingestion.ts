@@ -194,8 +194,9 @@ export function resolveScheduledSourcesFromCron(cron: string | undefined, enable
     return new Set(['rss']);
   }
   if (normalized === '40 * * * *') {
-    return new Set(['euvd']);
+    return new Set(enableHn ? ['euvd', 'hn'] : ['euvd']);
   }
+  // Backward compatibility for prior 6-slot cron config.
   if (normalized === '50 * * * *') {
     return enableHn ? new Set(['hn']) : new Set();
   }
