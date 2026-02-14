@@ -2,12 +2,13 @@ name = "ai-security-incident-radar"
 main = "src/index.ts"
 compatibility_date = "2026-02-14"
 
-[vars]
+[env.dev]
+
+[env.dev.vars]
 APP_NAME = "AI Security Incident Radar"
 GA_MEASUREMENT_ID = "G-Z3VJWF5DTV"
 
-# Add D1 binding in production and local environments once created.
-[[d1_databases]]
+[[env.dev.d1_databases]]
 binding = "DB"
 database_name = "ai-security-radar"
 database_id = "389bd183-d056-405d-8e25-b1d4dd7b55fc"

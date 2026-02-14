@@ -21,6 +21,7 @@ describe('waitlist endpoint', () => {
     expect(html).toContain('name="utmSource"');
     expect(html).toContain('name="utmMedium"');
     expect(html).toContain('name="utmCampaign"');
+    expect(html).toContain('name="riskOption"');
   });
 
   test('accepts valid signup', async () => {

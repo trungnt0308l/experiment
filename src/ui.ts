@@ -56,6 +56,21 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
       border: 1px solid var(--line);
       padding: 16px;
     }
+    .option-list {
+      border: 1px solid #9e978c;
+      border-radius: 3px;
+      padding: 10px;
+      margin-bottom: 12px;
+      background: #fff;
+    }
+    .option-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .option-item:last-child { margin-bottom: 0; }
     label { display: block; font-size: 14px; margin-bottom: 6px; }
     input, textarea {
       width: 100%;
@@ -113,8 +128,17 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
         <label for="role">Role</label>
         <input id="role" name="role" type="text" required />
 
-        <label for="interests">What risk do you need help monitoring right now?</label>
-        <textarea id="interests" name="interests" rows="3" required></textarea>
+        <label>What risks do you need help monitoring right now? (Select all that apply)</label>
+        <div class="option-list" role="group" aria-label="Risk interests">
+          <label class="option-item"><input type="checkbox" name="riskOption" value="Prompt injection attacks" /> Prompt injection attacks</label>
+          <label class="option-item"><input type="checkbox" name="riskOption" value="Data leakage in AI tools" /> Data leakage in AI tools</label>
+          <label class="option-item"><input type="checkbox" name="riskOption" value="Shadow AI usage" /> Shadow AI usage</label>
+          <label class="option-item"><input type="checkbox" name="riskOption" value="Model supply chain risk" /> Model supply chain risk</label>
+          <label class="option-item"><input type="checkbox" name="riskOption" value="Compliance and regulatory exposure" /> Compliance and regulatory exposure</label>
+          <label class="option-item"><input type="checkbox" name="riskOption" value="Agent abuse and privilege misuse" /> Agent abuse and privilege misuse</label>
+        </div>
+
+        <input type="hidden" id="interests" name="interests" value="" />
 
         <input type="hidden" name="source" value="landing-page" />
         <input type="hidden" name="utmSource" id="utmSource" value="" />
@@ -156,6 +180,17 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
       status.className = 'small';
 
       const formData = new FormData(form);
+      const selectedRisks = Array.from(form.querySelectorAll('input[name="riskOption"]:checked'))
+        .map((el) => el.value)
+        .join(', ');
+
+      if (!selectedRisks) {
+        status.textContent = 'Please select at least one risk area.';
+        status.className = 'small err';
+        return;
+      }
+
+      formData.set('interests', selectedRisks);
       const response = await fetch('/api/waitlist', {
         method: 'POST',
         body: formData,

@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --env dev",
     "deploy": "wrangler deploy",
     "deploy:prod": "wrangler deploy --env production",
-    "db:migrate:local": "wrangler d1 migrations apply ai-security-radar --local",
-    "db:migrate:remote": "wrangler d1 migrations apply ai-security-radar --remote",
+    "db:migrate:local": "wrangler d1 migrations apply ai-security-radar --local --env dev",
+    "db:migrate:remote": "wrangler d1 migrations apply ai-security-radar --remote --env production",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
