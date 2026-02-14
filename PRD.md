@@ -287,3 +287,6 @@ Teams need a single low-cost service that detects relevant AI security incidents
 - [2026-02-14] Initial PRD created for implementation kickoff with phased goals, verification steps, and exit criteria.
 - [2026-02-14] Added implementation default: GPT-5 mini optional layer for semantic dedupe and published-incident enrichment, with budget caps and fallback to deterministic pipeline when LLM is unavailable.
 - [2026-02-14] Added role-focused pSEO route set (`/for`, `/for/:role/:problem`) with strict quality gates, phased indexing flags, and waitlist CTA attribution for multi-persona demand capture.
+- [2026-02-14] cron-cpu-time-fix: Added ingestion CPU budget controls (per-run processing cap + alternating cron source batches) so Worker cron runs stay within CPU limits while covering all sources across consecutive schedules.
+- [2026-02-14] cron-cpu-time-fix: Updated scheduled ingestion to per-source hourly cron slots (00/10/20/30/40/50) to isolate source workloads and further reduce CPU timeout risk.
+- [2026-02-14] cron-cpu-time-fix: Adjusted cron schedule to 5 slots due Cloudflare account trigger limit; combined HN with 40-minute EUVD slot when HN is enabled.

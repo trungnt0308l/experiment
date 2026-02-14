@@ -1,11 +1,16 @@
 import { createApp, type EnvBindings } from './app';
-import { runIngestionPipeline } from './ingestion';
+import { resolveScheduledSources, resolveScheduledSourcesFromCron, runIngestionPipeline } from './ingestion';
 
 const app = createApp();
 
 export default {
   fetch: app.fetch,
-  async scheduled(_controller: ScheduledController, env: EnvBindings, ctx: ExecutionContext) {
-    ctx.waitUntil(runIngestionPipeline(env));
+  async scheduled(controller: ScheduledController, env: EnvBindings, ctx: ExecutionContext) {
+    const splitEnabled = (env.CRON_SOURCE_SPLIT_ENABLED ?? 'true').toLowerCase() === 'true';
+    const enableHn = (env.ENABLE_HN_SOURCE ?? 'true').toLowerCase() === 'true';
+    const sourceAllowlist =
+      (splitEnabled ? resolveScheduledSourcesFromCron(controller.cron, enableHn) : null) ??
+      resolveScheduledSources(controller.scheduledTime, splitEnabled, enableHn);
+    ctx.waitUntil(runIngestionPipeline(env, fetch, { sourceAllowlist }));
   },
 };

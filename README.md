@@ -88,7 +88,7 @@ npx wrangler secret put OPENAI_API_KEY --env production
 ```
 
 ### Phase 1 ingestion pipeline (HN + NVD + CISA KEV + EUVD + GHSA + RSS)
-Data ingestion runs on Worker cron (every 30 minutes via `wrangler.toml` triggers) and can be triggered manually.
+Data ingestion runs on Worker cron (5 hourly slots via `wrangler.toml` triggers due plan limits) and can be triggered manually.
 
 Manual trigger:
 ```bash
@@ -123,11 +123,21 @@ Feed overrides:
   - `LLM_DEDUPE_MAX_CALLS` per ingestion run (default `6`)
   - `LLM_ENRICH_ENABLED=true|false`
   - `LLM_ENRICH_MAX_CALLS` auto-publish enrich calls per run (default `2`)
+- CPU controls:
+  - `INGESTION_MAX_EVENTS_PER_RUN` hard cap on events processed per run (default `36`)
+  - `CRON_SOURCE_SPLIT_ENABLED=true|false` enables source routing from cron expression (default `true`)
 - Set `MAX_EVENT_AGE_DAYS` (default `60`) to exclude stale incidents from draft generation.
 - Relevance gate is strict by default: HN/RSS items must include both AI and security signals.
 - HN uses an incident-only gate (CVE/exploit/breach/prompt-injection patterns) and excludes common HN noise patterns (Show HN, benchmarks, generic launches).
 - Set `HN_MAX_ITEMS` (default `8`) to cap HN subrequests and avoid Worker resource-limit errors.
 - Set `ENABLE_HN_SOURCE=false` to disable HN ingestion temporarily.
+- Cron source schedule:
+  - `0 * * * *` -> `nvd`
+  - `10 * * * *` -> `ghsa`
+  - `20 * * * *` -> `cisa_kev`
+  - `30 * * * *` -> `rss`
+  - `40 * * * *` -> `euvd` (+ `hn` when `ENABLE_HN_SOURCE=true`)
+  - This keeps triggers within the 5-cron account limit while reducing CPU spikes.
 - Auto-publish rule: incidents from trusted sources in `AUTO_PUBLISH_TRUSTED_SOURCES` (default `nvd`) and meeting `AUTO_PUBLISH_MIN_SEVERITY` (default `high`) are published immediately.
 - Role-focused pSEO controls:
   - `PSEO_ROLE_PAGES_ENABLED=true|false` (default `false`) enables `/for` and `/for/:role/:problem` routes.

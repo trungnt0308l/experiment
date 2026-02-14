@@ -41,6 +41,8 @@ export type EnvBindings = {
   LLM_ENRICH_MAX_CALLS?: string;
   PSEO_ROLE_PAGES_ENABLED?: string;
   PSEO_ROLE_PAGES_INDEXING_ENABLED?: string;
+  INGESTION_MAX_EVENTS_PER_RUN?: string;
+  CRON_SOURCE_SPLIT_ENABLED?: string;
   HN_MAX_ITEMS?: string;
   RSS_FEEDS?: string;
   MAX_EVENT_AGE_DAYS?: string;

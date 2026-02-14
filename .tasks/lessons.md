@@ -51,3 +51,9 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: UI lacked summary preview/truncation for high-verbosity source entries.
 - **Fix applied**: Added preview truncation and optional details expansion for full content; preserved access without overwhelming layout.
 - **Rule going forward**: Any operational review list should default to compact previews with explicit expand controls for verbose fields.
+
+## [2026-02-14] cron-cpu-time-fix: Cloudflare cron trigger plan limit blocked deploy
+- **What went wrong**: Production deploy failed when setting 6 cron expressions for per-source scheduling.
+- **Root cause**: Account plan supports a maximum of 5 cron triggers per Worker.
+- **Fix applied**: Reduced to 5 cron triggers and mapped HN into the `40 * * * *` slot when enabled.
+- **Rule going forward**: Check Cloudflare account/platform limits before expanding schedule fan-out; design cron routing to fit hard trigger caps.
