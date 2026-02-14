@@ -57,3 +57,9 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: Account plan supports a maximum of 5 cron triggers per Worker.
 - **Fix applied**: Reduced to 5 cron triggers and mapped HN into the `40 * * * *` slot when enabled.
 - **Rule going forward**: Check Cloudflare account/platform limits before expanding schedule fan-out; design cron routing to fit hard trigger caps.
+
+## [2026-02-14] pseo-role-pages: Branch deploy risked overwriting production cron protections
+- **What went wrong**: The pSEO branch was based on `main` before cron CPU-time fixes, so deploying it directly would have reverted cron scheduling/caps in production.
+- **Root cause**: Deployed state was ahead of `main` and not yet merged into the feature branch.
+- **Fix applied**: Merged `feat/cron-cpu-time-fix` into `feat/pseo-role-pages` before production deploy and re-ran verification.
+- **Rule going forward**: Before any production deploy from a feature branch, diff critical runtime files (`wrangler.toml`, scheduled handlers, runtime caps) against last deployed fix branches and merge forward first.
