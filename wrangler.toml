@@ -1,0 +1,12 @@
+name = "ai-security-incident-radar"
+main = "src/index.ts"
+compatibility_date = "2026-02-14"
+
+[vars]
+APP_NAME = "AI Security Incident Radar"
+
+# Add D1 binding in production and local environments once created.
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "ai-security-radar"
+# database_id = "<your-d1-database-id>"
