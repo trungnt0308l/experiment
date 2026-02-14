@@ -1,11 +1,16 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
-import { renderLandingPage } from './ui';
+import { renderLandingPage, renderPrivacyPage, renderSecurityPage, renderTermsPage } from './ui';
 
 export type EnvBindings = {
   APP_NAME?: string;
   GA_MEASUREMENT_ID?: string;
+  ADMIN_API_TOKEN?: string;
+  RESEND_API_KEY?: string;
+  NOTIFY_EMAIL_TO?: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
   DB?: D1Database;
 };
 
@@ -20,6 +25,20 @@ export type WaitlistSignup = {
   utmCampaign?: string;
   referrer?: string;
   landingPath?: string;
+};
+
+type SignupRow = {
+  email: string;
+  company: string;
+  role: string;
+  interests: string;
+  source: string | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  referrer: string | null;
+  landing_path: string | null;
+  created_at: string;
 };
 
 const schema = z.object({
@@ -61,6 +80,118 @@ function normalize(form: Record<string, string | undefined>): WaitlistSignup {
     referrer: form.referrer?.trim() || undefined,
     landingPath: form.landingPath?.trim() || undefined,
   };
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function toCsv(rows: SignupRow[]): string {
+  const headers = [
+    'email',
+    'company',
+    'role',
+    'interests',
+    'source',
+    'utm_source',
+    'utm_medium',
+    'utm_campaign',
+    'referrer',
+    'landing_path',
+    'created_at',
+  ];
+
+  const escapeCsv = (value: string | null): string => {
+    const raw = value ?? '';
+    if (raw.includes(',') || raw.includes('"') || raw.includes('\n')) {
+      return `"${raw.replaceAll('"', '""')}"`;
+    }
+    return raw;
+  };
+
+  const lines = [headers.join(',')];
+  for (const row of rows) {
+    lines.push([
+      row.email,
+      row.company,
+      row.role,
+      row.interests,
+      row.source,
+      row.utm_source,
+      row.utm_medium,
+      row.utm_campaign,
+      row.referrer,
+      row.landing_path,
+      row.created_at,
+    ].map(escapeCsv).join(','));
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+function renderAdminPage(rows: SignupRow[]): string {
+  const bodyRows = rows
+    .map((row) => {
+      const safe = {
+        email: escapeHtml(row.email),
+        company: escapeHtml(row.company),
+        role: escapeHtml(row.role),
+        interests: escapeHtml(row.interests),
+        source: escapeHtml(row.source ?? ''),
+        utm: escapeHtml([row.utm_source, row.utm_medium, row.utm_campaign].filter(Boolean).join(' / ')),
+        created_at: escapeHtml(row.created_at),
+      };
+      return `<tr>
+        <td>${safe.created_at}</td>
+        <td>${safe.email}</td>
+        <td>${safe.company}</td>
+        <td>${safe.role}</td>
+        <td>${safe.interests}</td>
+        <td>${safe.source}</td>
+        <td>${safe.utm}</td>
+      </tr>`;
+    })
+    .join('');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Signup Admin</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 8px; font-size: 13px; }
+    th { background: #f5f5f5; text-align: left; }
+    h1 { margin: 0 0 14px; }
+    .actions { margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Waitlist Signups</h1>
+  <div class="actions">Use <code>/api/admin/signups?format=csv</code> for export.</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Created At</th>
+        <th>Email</th>
+        <th>Company</th>
+        <th>Role</th>
+        <th>Interests</th>
+        <th>Source</th>
+        <th>UTM</th>
+      </tr>
+    </thead>
+    <tbody>${bodyRows}</tbody>
+  </table>
+</body>
+</html>`;
 }
 
 async function saveSignup(db: D1Database | undefined, signup: WaitlistSignup): Promise<{ inserted: boolean }> {
@@ -121,6 +252,93 @@ async function parsePayload(c: Context<{ Bindings: EnvBindings }>): Promise<Reco
   return toPayload(body as Record<string, string | File>);
 }
 
+function getAdminToken(c: Context<{ Bindings: EnvBindings }>): string | null {
+  const authHeader = c.req.header('authorization') ?? '';
+  if (authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7).trim();
+  }
+
+  const token = c.req.query('token');
+  return token ?? null;
+}
+
+function isAdminAuthorized(c: Context<{ Bindings: EnvBindings }>): boolean {
+  const expected = c.env.ADMIN_API_TOKEN;
+  if (!expected) {
+    return false;
+  }
+  return getAdminToken(c) === expected;
+}
+
+function runBackground(c: Context<{ Bindings: EnvBindings }>, promise: Promise<void>): Promise<void> {
+  try {
+    const ctx = c.executionCtx;
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil(promise);
+      return Promise.resolve();
+    }
+  } catch {
+    // Test environment may not expose an execution context.
+  }
+  return promise;
+}
+
+async function sendEmailNotification(env: EnvBindings, signup: WaitlistSignup): Promise<void> {
+  if (!env.RESEND_API_KEY || !env.NOTIFY_EMAIL_TO) {
+    return;
+  }
+
+  const payload = {
+    from: 'AI Security Radar <alerts@aisecurityradar.com>',
+    to: [env.NOTIFY_EMAIL_TO],
+    subject: `New waitlist signup: ${signup.email}`,
+    text: [
+      `Email: ${signup.email}`,
+      `Company: ${signup.company}`,
+      `Role: ${signup.role}`,
+      `Interests: ${signup.interests}`,
+      `Source: ${signup.source ?? ''}`,
+      `UTM: ${signup.utmSource ?? ''}/${signup.utmMedium ?? ''}/${signup.utmCampaign ?? ''}`,
+    ].join('\n'),
+  };
+
+  await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function sendTelegramNotification(env: EnvBindings, signup: WaitlistSignup): Promise<void> {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
+    return;
+  }
+
+  const text = [
+    'New waitlist signup',
+    `Email: ${signup.email}`,
+    `Company: ${signup.company}`,
+    `Role: ${signup.role}`,
+    `Risks: ${signup.interests}`,
+  ].join('\n');
+
+  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text }),
+  });
+}
+
+async function notifySignup(env: EnvBindings, signup: WaitlistSignup): Promise<void> {
+  await Promise.allSettled([
+    sendEmailNotification(env, signup),
+    sendTelegramNotification(env, signup),
+  ]);
+}
+
 export function createApp() {
   const app = new Hono<{ Bindings: EnvBindings }>();
 
@@ -129,6 +347,65 @@ export function createApp() {
   app.get('/', (c) => {
     const appName = c.env.APP_NAME ?? 'AI Security Incident Radar';
     return c.html(renderLandingPage(appName, c.env.GA_MEASUREMENT_ID));
+  });
+
+  app.get('/privacy', (c) => c.html(renderPrivacyPage()));
+  app.get('/terms', (c) => c.html(renderTermsPage()));
+  app.get('/security', (c) => c.html(renderSecurityPage()));
+
+  app.get('/api/admin/signups', async (c) => {
+    if (!isAdminAuthorized(c)) {
+      return c.json({ ok: false, error: 'Unauthorized' }, 401);
+    }
+
+    if (!c.env.DB) {
+      return c.json({ ok: false, error: 'DB not configured' }, 503);
+    }
+
+    const limit = Math.min(Math.max(Number(c.req.query('limit') ?? '100'), 1), 500);
+    const format = c.req.query('format') ?? 'json';
+
+    const result = await c.env.DB
+      .prepare(
+        `SELECT email, company, role, interests, source, utm_source, utm_medium, utm_campaign, referrer, landing_path, created_at
+         FROM waitlist_signups
+         ORDER BY datetime(created_at) DESC
+         LIMIT ?1`
+      )
+      .bind(limit)
+      .all<SignupRow>();
+
+    const rows = result.results ?? [];
+
+    if (format === 'csv') {
+      return c.body(toCsv(rows), 200, {
+        'content-type': 'text/csv; charset=utf-8',
+        'content-disposition': 'attachment; filename="signups.csv"',
+      });
+    }
+
+    return c.json({ ok: true, count: rows.length, rows });
+  });
+
+  app.get('/admin/signups', async (c) => {
+    if (!isAdminAuthorized(c)) {
+      return c.text('Unauthorized', 401);
+    }
+
+    if (!c.env.DB) {
+      return c.text('DB not configured', 503);
+    }
+
+    const result = await c.env.DB
+      .prepare(
+        `SELECT email, company, role, interests, source, utm_source, utm_medium, utm_campaign, referrer, landing_path, created_at
+         FROM waitlist_signups
+         ORDER BY datetime(created_at) DESC
+         LIMIT 200`
+      )
+      .all<SignupRow>();
+
+    return c.html(renderAdminPage(result.results ?? []));
   });
 
   app.post('/api/waitlist', async (c) => {
@@ -143,6 +420,11 @@ export function createApp() {
     }
 
     const result = await saveSignup(c.env.DB, parsed.data);
+
+    if (result.inserted) {
+      const notifyPromise = notifySignup(c.env, parsed.data);
+      await runBackground(c, notifyPromise);
+    }
 
     return c.json(
       {

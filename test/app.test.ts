@@ -22,6 +22,24 @@ describe('waitlist endpoint', () => {
     expect(html).toContain('name="utmMedium"');
     expect(html).toContain('name="utmCampaign"');
     expect(html).toContain('name="riskOption"');
+    expect(html).toContain('href="/privacy"');
+  });
+
+  test('renders legal pages', async () => {
+    const app = createApp();
+    const privacy = await app.request('http://localhost/privacy', undefined, makeEnv());
+    const terms = await app.request('http://localhost/terms', undefined, makeEnv());
+    const security = await app.request('http://localhost/security', undefined, makeEnv());
+
+    expect(privacy.status).toBe(200);
+    expect(terms.status).toBe(200);
+    expect(security.status).toBe(200);
+  });
+
+  test('rejects unauthorized admin access', async () => {
+    const app = createApp();
+    const res = await app.request('http://localhost/api/admin/signups', undefined, makeEnv());
+    expect(res.status).toBe(401);
   });
 
   test('accepts valid signup', async () => {

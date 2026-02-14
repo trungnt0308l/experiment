@@ -261,7 +261,7 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
 
         <div class="trust-strip">
           We only use your details for access and product updates. No spam. No resale.
-          <div class="links"><a href="#">Privacy</a><a href="#">Terms</a><a href="#">Security</a></div>
+          <div class="links"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/security">Security</a></div>
         </div>
         <p id="status" class="small" aria-live="polite"></p>
       </form>
@@ -270,7 +270,7 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
     <footer>
       <span>AI Security Radar</span>
       <span>Contact: security@aisecurityradar.com</span>
-      <span>© 2026 AI Security Radar</span>
+      <span>Â© 2026 AI Security Radar</span>
     </footer>
   </main>
 
@@ -361,4 +361,93 @@ export function renderLandingPage(appName: string, gaMeasurementId?: string): st
   </script>
 </body>
 </html>`;
+}
+
+function renderPolicyShell(title: string, body: string): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title} - AI Security Radar</title>
+  <style>
+    body { font-family: Georgia, "Times New Roman", serif; margin: 0; background: #f7f5ef; color: #1c1915; }
+    main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+    article { background: #fffdf9; border: 1px solid #ddd6c8; padding: 20px; }
+    h1 { margin-top: 0; }
+    h2 { margin-top: 18px; font-size: 20px; }
+    p, li { font-size: 16px; line-height: 1.45; }
+    a { color: #135d7a; }
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      <h1>${title}</h1>
+      ${body}
+      <p><a href="/">Back to homepage</a></p>
+    </article>
+  </main>
+</body>
+</html>`;
+}
+
+export function renderPrivacyPage(): string {
+  return renderPolicyShell(
+    'Privacy Policy',
+    `
+    <p>Last updated: February 14, 2026</p>
+    <p>We collect contact and profile information that you submit in the waitlist form, along with attribution metadata (for example UTM parameters) for demand analysis.</p>
+    <h2>What We Collect</h2>
+    <ul>
+      <li>Work email, company, role, and selected risk interests.</li>
+      <li>Traffic attribution metadata such as source, campaign, and referrer.</li>
+    </ul>
+    <h2>How We Use Data</h2>
+    <ul>
+      <li>To contact you about access, onboarding, and product updates.</li>
+      <li>To measure campaign performance and improve product positioning.</li>
+    </ul>
+    <h2>Data Sharing</h2>
+    <p>We do not sell your personal data. We may use vetted subprocessors for hosting, analytics, and notification delivery.</p>
+    <h2>Your Rights</h2>
+    <p>You can request access, correction, or deletion by emailing security@aisecurityradar.com.</p>
+    `
+  );
+}
+
+export function renderTermsPage(): string {
+  return renderPolicyShell(
+    'Terms of Use',
+    `
+    <p>Last updated: February 14, 2026</p>
+    <p>By using this site, you agree to provide accurate information and not misuse the service.</p>
+    <h2>Service Scope</h2>
+    <p>Current service access is pre-release and provided on an as-available basis.</p>
+    <h2>No Warranty</h2>
+    <p>Content and alerts are informational and do not constitute legal or regulatory advice.</p>
+    <h2>Liability</h2>
+    <p>To the maximum extent permitted by law, liability is limited to direct damages only.</p>
+    <h2>Contact</h2>
+    <p>Questions about terms can be sent to security@aisecurityradar.com.</p>
+    `
+  );
+}
+
+export function renderSecurityPage(): string {
+  return renderPolicyShell(
+    'Security',
+    `
+    <p>Last updated: February 14, 2026</p>
+    <p>We apply access controls, environment-isolated infrastructure, and least-privilege handling for operational data.</p>
+    <h2>Security Practices</h2>
+    <ul>
+      <li>Transport security via HTTPS.</li>
+      <li>Credential and API key management using environment secrets.</li>
+      <li>Restricted administrative endpoints protected by token-based authentication.</li>
+    </ul>
+    <h2>Incident Reporting</h2>
+    <p>If you identify a security issue, contact security@aisecurityradar.com with details and reproduction steps.</p>
+    `
+  );
 }
