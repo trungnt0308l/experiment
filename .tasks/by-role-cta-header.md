@@ -1,34 +1,33 @@
-# Task: by-role-cta-header
+ï»¿# Task: by-role-cta-header
 
 ## Meta
 - **Status**: DONE
 - **Branch**: fix/by-role-cta-header
-- **PR**: (link once created)
+- **PR**: https://github.com/trungnt0308l/experiment/pull/new/fix/by-role-cta-header
 - **Created**: 2026-02-16 18:27:59
-- **Last Updated**: 2026-02-16 18:32:06
+- **Last Updated**: 2026-02-16 18:32:58
 
 ## Objective
 Fix header/footer "By Role" CTA visibility so users do not see a broken link when role pages are disabled.
 
 ## Plan
-- [x] Step 1 — Confirm current CTA wiring and feature-flag behavior
-- [x] Step 2 — Update UI renderers to conditionally show "By Role" links
-- [x] Step 3 — Pass role-page enabled flag from app routes into renderers
-- [x] Step 4 — Add regression tests for hidden/shown CTA behavior
-- [x] Step 5 — Verification
-- [x] Step 6 — PR self-review
+- [x] Step 1 â€” Confirm current CTA wiring and feature-flag behavior
+- [x] Step 2 â€” Update UI renderers to conditionally show "By Role" links
+- [x] Step 3 â€” Pass role-page enabled flag from app routes into renderers
+- [x] Step 4 â€” Add regression tests for hidden/shown CTA behavior
+- [x] Step 5 â€” Verification
+- [x] Step 6 â€” PR self-review
 
 ## Progress Log
-- [2026-02-16 18:27:59] Started task. Checked out branch ix/by-role-cta-header.
-- [2026-02-16 18:27:59] Confirmed /for routes are guarded by PSEO_ROLE_PAGES_ENABLED, while header/footer always render "By Role" links.
-- [2026-02-16 18:32:06] Updated src/ui.ts to conditionally render header/footer role links via olePagesEnabled and threaded the flag through all page renderers.
-- [2026-02-16 18:32:06] Updated src/app.ts route render calls to pass PSEO_ROLE_PAGES_ENABLED into UI renderers so CTA visibility matches route availability.
-- [2026-02-16 18:32:06] Added regression assertions in 	est/app.test.ts for hidden CTA by default and visible CTA when role pages are enabled.
-- [2026-02-16 18:32:06] Verification complete: 
-pm run typecheck and 
-pm run test passed.
-- [2026-02-16 18:32:06] Manual verification: confirmed generated homepage HTML excludes href="/for">By Role by default and includes it when PSEO_ROLE_PAGES_ENABLED=true.
-- [2026-02-16 18:32:06] Completed PR self-review checklist in .tasks/by-role-cta-header-review.md.
+- [2026-02-16 18:27:59] Started task. Checked out branch `fix/by-role-cta-header`.
+- [2026-02-16 18:27:59] Confirmed `/for` routes are guarded by `PSEO_ROLE_PAGES_ENABLED`, while header/footer always render "By Role" links.
+- [2026-02-16 18:32:06] Updated `src/ui.ts` to conditionally render header/footer role links via `rolePagesEnabled` and threaded the flag through all page renderers.
+- [2026-02-16 18:32:06] Updated `src/app.ts` route render calls to pass `PSEO_ROLE_PAGES_ENABLED` into UI renderers so CTA visibility matches route availability.
+- [2026-02-16 18:32:06] Added regression assertions in `test/app.test.ts` for hidden CTA by default and visible CTA when role pages are enabled.
+- [2026-02-16 18:32:06] Verification complete: `npm run typecheck` and `npm run test` passed.
+- [2026-02-16 18:32:06] Manual verification: confirmed generated homepage HTML excludes `href="/for">By Role` by default and includes it when `PSEO_ROLE_PAGES_ENABLED=true`.
+- [2026-02-16 18:32:06] Completed PR self-review checklist in `.tasks/by-role-cta-header-review.md`.
+- [2026-02-16 18:32:58] Committed changes (`fix(by-role-cta-header): hide by-role CTA when role pages disabled`) and pushed branch `fix/by-role-cta-header`.
 
 ## Verification Checklist
 - [x] All acceptance criteria met
