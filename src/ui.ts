@@ -149,25 +149,29 @@ function renderSeoMeta(input: SeoMeta): string {
   <link rel="sitemap" type="application/xml" href="${escapeAttr(absoluteUrl(input.siteUrl, '/sitemap.xml'))}" />`;
 }
 
-function renderSiteHeader(appName = 'AI Security Radar'): string {
+function renderSiteHeader(appName = 'AI Security Radar', rolePagesEnabled = false): string {
+  const roleLink = rolePagesEnabled ? '<a class="link-btn" href="/for">By Role</a>' : '';
   return `<header class="topbar">
       <a class="brand-link" href="/" aria-label="${escapeHtml(appName)} homepage">
         <div class="brand"><span class="mark">ASR</span> ${escapeHtml(appName)}</div>
       </a>
       <div class="nav">
-        <a class="link-btn" href="/for">By Role</a>
+        ${roleLink}
         <a class="link-btn" href="/incidents">Recent Incidents</a>
         <a class="link-btn cta-nav" id="nav-get-notified" data-cta="nav_get_notified" href="/#waitlist-form">Get Notified</a>
       </div>
     </header>`;
 }
 
-function renderSiteFooter(): string {
+function renderSiteFooter(rolePagesEnabled = false): string {
+  const footerLinks = rolePagesEnabled
+    ? '<a href="/for">By Role</a> | <a href="/privacy">Privacy</a> | <a href="/terms">Terms</a> | <a href="/security">Security</a>'
+    : '<a href="/privacy">Privacy</a> | <a href="/terms">Terms</a> | <a href="/security">Security</a>';
   return `<footer class="site-footer">
       <span>AI Security Radar</span>
       <span>Contact: <a href="mailto:security@aisecurityradar.com">security@aisecurityradar.com</a></span>
       <span>&copy; 2026 AI Security Radar</span>
-      <span><a href="/for">By Role</a> | <a href="/privacy">Privacy</a> | <a href="/terms">Terms</a> | <a href="/security">Security</a></span>
+      <span>${footerLinks}</span>
     </footer>`;
 }
 
@@ -193,7 +197,8 @@ export function renderLandingPage(
   appName: string,
   gaMeasurementId?: string,
   sampleAlert?: LandingSampleAlert,
-  siteUrl?: string
+  siteUrl?: string,
+  rolePagesEnabled = false
 ): string {
   const gaSnippet = renderGaSnippet(gaMeasurementId);
   const seoSnippet = renderSeoMeta({
@@ -424,7 +429,7 @@ export function renderLandingPage(
 </head>
 <body>
   <main class="wrap">
-    ${renderSiteHeader(appName)}
+    ${renderSiteHeader(appName, rolePagesEnabled)}
 
     <section class="hero">
       <h1>When AI security incidents break, <span class="risk">minutes decide the outcome.</span></h1>
@@ -491,7 +496,7 @@ export function renderLandingPage(
       </form>
     </section>
 
-    ${renderSiteFooter()}
+    ${renderSiteFooter(rolePagesEnabled)}
   </main>
 
   <script>
@@ -618,7 +623,8 @@ export function renderRoleHubPage(
   pages: RoleProblemPageDefinition[],
   appName: string,
   gaMeasurementId?: string,
-  siteUrl?: string
+  siteUrl?: string,
+  rolePagesEnabled = true
 ): string {
   const seoSnippet = renderSeoMeta({
     title: 'AI Security Monitoring by Role | AI Security Radar',
@@ -699,7 +705,7 @@ export function renderRoleHubPage(
 </head>
 <body>
   <main class="wrap">
-    ${renderSiteHeader(appName)}
+    ${renderSiteHeader(appName, rolePagesEnabled)}
     <section class="hero">
       <h1 style="margin:0 0 10px;">AI Security Monitoring by Role</h1>
       <p>Choose your operating role to get focused guidance on AI security exposures, response priorities, and evidence-ready remediation paths.</p>
@@ -709,7 +715,7 @@ export function renderRoleHubPage(
     <section class="cta-strip">
       <span>Need immediate updates? <a href="/#waitlist-form">Join the waitlist</a> for source-backed AI incident alerts.</span>
     </section>
-    ${renderSiteFooter()}
+    ${renderSiteFooter(rolePagesEnabled)}
   </main>
 </body>
 </html>`;
@@ -719,7 +725,8 @@ export function renderRoleProblemPage(
   view: RoleProblemPageViewModel,
   appName: string,
   gaMeasurementId?: string,
-  siteUrl?: string
+  siteUrl?: string,
+  rolePagesEnabled = true
 ): string {
   const { page, relatedByRole, relatedByProblem, relatedIncidents, noindex, sourceTag } = view;
   const seoSnippet = renderSeoMeta({
@@ -851,7 +858,7 @@ export function renderRoleProblemPage(
 </head>
 <body>
   <main class="wrap">
-    ${renderSiteHeader(appName)}
+    ${renderSiteHeader(appName, rolePagesEnabled)}
     <p class="muted"><a href="/for">By Role Hub</a> / ${toSafeText(page.roleLabel)} / ${toSafeText(page.problemLabel)}</p>
     <section class="layout">
       <article class="article">
@@ -906,7 +913,7 @@ export function renderRoleProblemPage(
         </section>
       </aside>
     </section>
-    ${renderSiteFooter()}
+    ${renderSiteFooter(rolePagesEnabled)}
   </main>
   <script>
     const form = document.getElementById('pseo-waitlist-form');
@@ -997,7 +1004,7 @@ export function renderRoleProblemPage(
 </html>`;
 }
 
-export function renderIncidentsPage(incidents: IncidentEntry[], siteUrl?: string): string {
+export function renderIncidentsPage(incidents: IncidentEntry[], siteUrl?: string, rolePagesEnabled = false): string {
   const cards = incidents
     .map((item) => {
       const safeTitle = toSafeText(item.title);
@@ -1056,12 +1063,12 @@ export function renderIncidentsPage(incidents: IncidentEntry[], siteUrl?: string
 </head>
 <body>
   <main class="wrap">
-    ${renderSiteHeader()}
+    ${renderSiteHeader('AI Security Radar', rolePagesEnabled)}
     <a class="back" href="/">Back to homepage</a>
     <h1>Recent AI Security Incidents</h1>
     <p>Curated incidents with impact and remediation notes.</p>
     ${cards}
-    ${renderSiteFooter()}
+    ${renderSiteFooter(rolePagesEnabled)}
   </main>
 </body>
 </html>`;
@@ -1070,7 +1077,8 @@ export function renderIncidentsPage(incidents: IncidentEntry[], siteUrl?: string
 export function renderIncidentDetailPage(
   incident: IncidentEntry,
   allIncidents: IncidentEntry[],
-  siteUrl?: string
+  siteUrl?: string,
+  rolePagesEnabled = false
 ): string {
   const safeTitle = toSafeText(incident.title);
   const safeIncidentDate = toSafeText(incident.incidentDate);
@@ -1179,7 +1187,7 @@ export function renderIncidentDetailPage(
 </head>
 <body>
   <main class="wrap">
-    ${renderSiteHeader()}
+    ${renderSiteHeader('AI Security Radar', rolePagesEnabled)}
     <p><a href="/incidents">Back to incidents</a></p>
     <article>
       <h1>${safeTitle}</h1>
@@ -1209,13 +1217,19 @@ export function renderIncidentDetailPage(
       <h3>More incidents</h3>
       <ul>${otherItems}</ul>
     </section>
-    ${renderSiteFooter()}
+    ${renderSiteFooter(rolePagesEnabled)}
   </main>
 </body>
 </html>`;
 }
 
-function renderPolicyShell(title: string, body: string, canonicalPath: string, siteUrl?: string): string {
+function renderPolicyShell(
+  title: string,
+  body: string,
+  canonicalPath: string,
+  siteUrl?: string,
+  rolePagesEnabled = false
+): string {
   const seoSnippet = renderSeoMeta({
     title: `${title} | AI Security Radar`,
     description: `${title} for AI Security Radar.`,
@@ -1261,19 +1275,19 @@ function renderPolicyShell(title: string, body: string, canonicalPath: string, s
 </head>
 <body>
   <main class="wrap">
-    ${renderSiteHeader()}
+    ${renderSiteHeader('AI Security Radar', rolePagesEnabled)}
     <article>
       <h1>${title}</h1>
       ${body}
       <p><a href="/">Back to homepage</a></p>
     </article>
-    ${renderSiteFooter()}
+    ${renderSiteFooter(rolePagesEnabled)}
   </main>
 </body>
 </html>`;
 }
 
-export function renderPrivacyPage(siteUrl?: string): string {
+export function renderPrivacyPage(siteUrl?: string, rolePagesEnabled = false): string {
   return renderPolicyShell(
     'Privacy Policy',
     `
@@ -1295,11 +1309,12 @@ export function renderPrivacyPage(siteUrl?: string): string {
     <p>You can request access, correction, or deletion by emailing security@aisecurityradar.com.</p>
     `,
     '/privacy',
-    siteUrl
+    siteUrl,
+    rolePagesEnabled
   );
 }
 
-export function renderTermsPage(siteUrl?: string): string {
+export function renderTermsPage(siteUrl?: string, rolePagesEnabled = false): string {
   return renderPolicyShell(
     'Terms of Use',
     `
@@ -1315,11 +1330,12 @@ export function renderTermsPage(siteUrl?: string): string {
     <p>Questions about terms can be sent to security@aisecurityradar.com.</p>
     `,
     '/terms',
-    siteUrl
+    siteUrl,
+    rolePagesEnabled
   );
 }
 
-export function renderSecurityPage(siteUrl?: string): string {
+export function renderSecurityPage(siteUrl?: string, rolePagesEnabled = false): string {
   return renderPolicyShell(
     'Security',
     `
@@ -1335,11 +1351,12 @@ export function renderSecurityPage(siteUrl?: string): string {
     <p>If you identify a security issue, contact security@aisecurityradar.com with details and reproduction steps.</p>
     `,
     '/security',
-    siteUrl
+    siteUrl,
+    rolePagesEnabled
   );
 }
 
-export function renderAdminOpsPage(siteUrl?: string): string {
+export function renderAdminOpsPage(siteUrl?: string, rolePagesEnabled = false): string {
   const seoSnippet = renderSeoMeta({
     title: 'Admin Operations | AI Security Radar',
     description: 'Administrative operations for ingestion and incident publishing.',
@@ -1424,7 +1441,7 @@ export function renderAdminOpsPage(siteUrl?: string): string {
 </head>
 <body>
   <main class="wrap">
-    ${renderSiteHeader()}
+    ${renderSiteHeader('AI Security Radar', rolePagesEnabled)}
     <section class="panel">
       <h1>Admin Operations</h1>
       <p class="muted">Use your admin bearer token in this page session only. It is never sent in URL parameters.</p>
@@ -1446,7 +1463,7 @@ export function renderAdminOpsPage(siteUrl?: string): string {
       <p class="muted">Drafts are created manually from ingestion records.</p>
       <div id="ingestions"></div>
     </section>
-    ${renderSiteFooter()}
+    ${renderSiteFooter(rolePagesEnabled)}
   </main>
   <script>
     const statusEl = document.getElementById('status');
@@ -1713,7 +1730,7 @@ export function renderAdminOpsPage(siteUrl?: string): string {
 </html>`;
 }
 
-export function renderAdminMetricsPage(siteUrl?: string): string {
+export function renderAdminMetricsPage(siteUrl?: string, rolePagesEnabled = false): string {
   const seoSnippet = renderSeoMeta({
     title: 'Admin Metrics | AI Security Radar',
     description: 'Validation and funnel metrics for AI Security Radar.',
@@ -1748,7 +1765,7 @@ export function renderAdminMetricsPage(siteUrl?: string): string {
 </head>
 <body>
   <main class="wrap">
-    ${renderSiteHeader()}
+    ${renderSiteHeader('AI Security Radar', rolePagesEnabled)}
     <section class="panel">
       <h1>Validation Metrics</h1>
       <p class="muted">Use admin bearer token to load demand and funnel metrics for Phase 0.</p>
@@ -1773,7 +1790,7 @@ export function renderAdminMetricsPage(siteUrl?: string): string {
       <h2>Source Breakdown</h2>
       <div id="sources"></div>
     </section>
-    ${renderSiteFooter()}
+    ${renderSiteFooter(rolePagesEnabled)}
   </main>
   <script>
     const tokenEl = document.getElementById('token');

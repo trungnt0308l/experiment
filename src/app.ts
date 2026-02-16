@@ -834,12 +834,14 @@ export function createApp() {
   app.get('/', async (c) => {
     const sample = await fetchLatestLandingSample(c.env.DB);
     const appName = c.env.APP_NAME ?? 'AI Security Incident Radar';
-    return c.html(renderLandingPage(appName, c.env.GA_MEASUREMENT_ID, sample, getSiteUrl(c)));
+    const rolePagesEnabled = envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false);
+    return c.html(renderLandingPage(appName, c.env.GA_MEASUREMENT_ID, sample, getSiteUrl(c), rolePagesEnabled));
   });
 
   app.get('/incidents', async (c) => {
     const incidents = await listIncidents(c.env.DB);
-    return c.html(renderIncidentsPage(incidents, getSiteUrl(c)));
+    const rolePagesEnabled = envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false);
+    return c.html(renderIncidentsPage(incidents, getSiteUrl(c), rolePagesEnabled));
   });
   app.get('/incidents/:slug', async (c) => {
     const slug = c.req.param('slug');
@@ -848,20 +850,23 @@ export function createApp() {
     if (!incident) {
       return c.text('Incident not found', 404);
     }
-    return c.html(renderIncidentDetailPage(incident, incidents, getSiteUrl(c)));
+    const rolePagesEnabled = envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false);
+    return c.html(renderIncidentDetailPage(incident, incidents, getSiteUrl(c), rolePagesEnabled));
   });
 
   app.get('/for', async (c) => {
-    if (!envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false)) {
+    const rolePagesEnabled = envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false);
+    if (!rolePagesEnabled) {
       return c.text('Not found', 404);
     }
     const pages = listRoleProblemPages();
     const appName = c.env.APP_NAME ?? 'AI Security Incident Radar';
-    return c.html(renderRoleHubPage(pages, appName, c.env.GA_MEASUREMENT_ID, getSiteUrl(c)));
+    return c.html(renderRoleHubPage(pages, appName, c.env.GA_MEASUREMENT_ID, getSiteUrl(c), rolePagesEnabled));
   });
 
   app.get('/for/:role/:problem', async (c) => {
-    if (!envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false)) {
+    const rolePagesEnabled = envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false);
+    if (!rolePagesEnabled) {
       return c.text('Not found', 404);
     }
 
@@ -895,16 +900,27 @@ export function createApp() {
         },
         appName,
         c.env.GA_MEASUREMENT_ID,
-        getSiteUrl(c)
+        getSiteUrl(c),
+        rolePagesEnabled
       )
     );
   });
 
-  app.get('/privacy', (c) => c.html(renderPrivacyPage(getSiteUrl(c))));
-  app.get('/terms', (c) => c.html(renderTermsPage(getSiteUrl(c))));
-  app.get('/security', (c) => c.html(renderSecurityPage(getSiteUrl(c))));
-  app.get('/admin/ops', (c) => c.html(renderAdminOpsPage(getSiteUrl(c))));
-  app.get('/admin/metrics', (c) => c.html(renderAdminMetricsPage(getSiteUrl(c))));
+  app.get('/privacy', (c) =>
+    c.html(renderPrivacyPage(getSiteUrl(c), envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false)))
+  );
+  app.get('/terms', (c) =>
+    c.html(renderTermsPage(getSiteUrl(c), envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false)))
+  );
+  app.get('/security', (c) =>
+    c.html(renderSecurityPage(getSiteUrl(c), envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false)))
+  );
+  app.get('/admin/ops', (c) =>
+    c.html(renderAdminOpsPage(getSiteUrl(c), envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false)))
+  );
+  app.get('/admin/metrics', (c) =>
+    c.html(renderAdminMetricsPage(getSiteUrl(c), envFlag(c.env.PSEO_ROLE_PAGES_ENABLED, false)))
+  );
 
   app.get('/robots.txt', (c) => {
     const siteUrl = getSiteUrl(c);

@@ -23,6 +23,7 @@ describe('waitlist endpoint', () => {
     expect(html).toContain('name="utmCampaign"');
     expect(html).toContain('name="riskOption"');
     expect(html).toContain('href="/privacy"');
+    expect(html).not.toContain('href="/for">By Role');
     expect(html).toContain('No published incidents yet.');
     expect(html).toContain('A verified sample alert will appear here after the first published incident.');
     expect(html).not.toContain('/admin/ops');
@@ -35,6 +36,15 @@ describe('waitlist endpoint', () => {
     expect(res.headers.get('x-frame-options')).toBe('DENY');
     expect(res.headers.get('content-security-policy')).toContain("default-src 'self'");
     expect(res.headers.get('content-security-policy')).toContain("img-src 'self' data: https:");
+  });
+
+  test('shows by role navigation when pseo pages are enabled', async () => {
+    const app = createApp();
+    const env = { ...makeEnv(), PSEO_ROLE_PAGES_ENABLED: 'true' };
+    const res = await app.request('http://localhost/', undefined, env);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('href="/for">By Role');
   });
 
   test('renders legal pages', async () => {
