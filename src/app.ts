@@ -453,7 +453,7 @@ const schema = z.object({
   email: z.string().email().max(200),
   company: z.string().max(120).optional().or(z.literal('')).transform((value) => value ?? ''),
   role: z.string().max(120).optional().or(z.literal('')).transform((value) => value ?? ''),
-  interests: z.string().min(2).max(240),
+  interests: z.string().max(240).optional().or(z.literal('')).transform((value) => value ?? ''),
   source: z.string().max(120).optional().or(z.literal('')),
   utmSource: z.string().max(120).optional().or(z.literal('')),
   utmMedium: z.string().max(120).optional().or(z.literal('')),
@@ -739,6 +739,7 @@ async function sendEmailNotification(env: EnvBindings, signup: WaitlistSignup): 
     return;
   }
 
+  const interestLabel = signup.interests || '(not provided)';
   const payload = {
     from: 'AI Security Radar <alerts@aisecurityradar.com>',
     to: [env.NOTIFY_EMAIL_TO],
@@ -747,7 +748,7 @@ async function sendEmailNotification(env: EnvBindings, signup: WaitlistSignup): 
       `Email: ${signup.email}`,
       ...(signup.company ? [`Company: ${signup.company}`] : []),
       ...(signup.role ? [`Role: ${signup.role}`] : []),
-      `Interests: ${signup.interests}`,
+      `Interests: ${interestLabel}`,
       `Source: ${signup.source ?? ''}`,
       `UTM: ${signup.utmSource ?? ''}/${signup.utmMedium ?? ''}/${signup.utmCampaign ?? ''}`,
     ].join('\n'),
@@ -768,12 +769,13 @@ async function sendTelegramNotification(env: EnvBindings, signup: WaitlistSignup
     return;
   }
 
+  const interestLabel = signup.interests || '(not provided)';
   const text = [
     'New waitlist signup',
     `Email: ${signup.email}`,
     ...(signup.company ? [`Company: ${signup.company}`] : []),
     ...(signup.role ? [`Role: ${signup.role}`] : []),
-    `Risks: ${signup.interests}`,
+    `Risks: ${interestLabel}`,
   ].join('\n');
 
   await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {

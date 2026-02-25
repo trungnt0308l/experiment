@@ -134,7 +134,8 @@ describe('waitlist endpoint', () => {
     expect(html).toContain('name="utmSource"');
     expect(html).toContain('name="utmMedium"');
     expect(html).toContain('name="utmCampaign"');
-    expect(html).toContain('name="riskOption"');
+    expect(html).not.toContain('name="riskOption"');
+    expect(html).not.toContain('Which risks should we monitor for you?');
     expect(html).toContain('href="/privacy"');
     expect(html).toContain('No published incidents yet.');
     expect(html).toContain('A verified sample alert will appear here after the first published incident.');
@@ -497,6 +498,24 @@ describe('waitlist endpoint', () => {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: form.toString(),
+    }, makeEnv());
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as WaitlistApiResponse;
+    expect(body.ok).toBe(true);
+    expect(body.status).toBe('joined');
+  });
+
+  test('accepts valid signup without interests', async () => {
+    const app = createApp();
+
+    const res = await app.request('http://localhost/api/waitlist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'email-only@example.com',
+        source: 'landing-page',
+      }),
     }, makeEnv());
 
     expect(res.status).toBe(201);

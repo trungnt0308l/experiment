@@ -375,16 +375,6 @@ export function renderLandingPage(
       font-family: inherit;
       background: #fff;
     }
-    .option-list {
-      border: 1px solid #9e978c;
-      border-radius: 3px;
-      padding: 10px;
-      margin-bottom: 12px;
-      background: #fff;
-    }
-    .option-item { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; }
-    .option-item:last-child { margin-bottom: 0; }
-    input[type="checkbox"] { width: auto; margin: 0; flex: 0 0 auto; }
     .actions { display: grid; gap: 8px; }
     button {
       border: 0;
@@ -406,7 +396,6 @@ export function renderLandingPage(
     .links { margin-top: 6px; display: flex; gap: 10px; }
     .links a { color: var(--accent); font-size: 13px; }
     .small { font-size: 13px; color: #4d483f; margin-top: 8px; }
-    .field-error { font-size: 13px; color: var(--danger); margin: -6px 0 10px; }
     .ok { color: var(--good); }
     .err { color: var(--danger); }
     .site-footer {
@@ -465,21 +454,10 @@ export function renderLandingPage(
         <label for="email">Work Email</label>
         <input id="email" name="email" type="email" required />
 
-        <label>Which risks should we monitor for you? (Select all that apply)</label>
-        <div class="option-list" role="group" aria-label="Risk interests">
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Prompt injection attacks" /> Prompt injection attacks</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Data leakage in AI tools" /> Data leakage in AI tools</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Shadow AI usage" /> Shadow AI usage</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Model supply chain risk" /> Model supply chain risk</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Compliance and regulatory exposure" /> Compliance and regulatory exposure</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Agent abuse and privilege misuse" /> Agent abuse and privilege misuse</label>
-        </div>
-        <p id="risk-error" class="field-error" style="display:none;" aria-live="polite">Please select at least one risk area.</p>
         <div class="actions">
           <button type="submit">Get Notified</button>
         </div>
 
-        <input type="hidden" id="interests" name="interests" value="" />
         <input type="hidden" name="source" value="landing-page" />
         <input type="hidden" name="utmSource" id="utmSource" value="" />
         <input type="hidden" name="utmMedium" id="utmMedium" value="" />
@@ -501,7 +479,6 @@ export function renderLandingPage(
   <script>
     const form = document.getElementById('waitlist-form');
     const status = document.getElementById('status');
-    const riskError = document.getElementById('risk-error');
     const params = new URLSearchParams(window.location.search);
     const emailInput = document.getElementById('email');
 
@@ -524,30 +501,6 @@ export function renderLandingPage(
     setField('referrer', document.referrer || 'direct');
     setField('landingPath', window.location.pathname + window.location.search);
 
-    const getSelectedRisks = () => Array.from(form.querySelectorAll('input[name="riskOption"]:checked'))
-      .map((el) => el.value)
-      .join(', ');
-    const setRiskError = (message) => {
-      if (!riskError) {
-        return;
-      }
-      if (!message) {
-        riskError.textContent = '';
-        riskError.style.display = 'none';
-        return;
-      }
-      riskError.textContent = message;
-      riskError.style.display = 'block';
-    };
-
-    form.querySelectorAll('input[name="riskOption"]').forEach((el) => {
-      el.addEventListener('change', () => {
-        track('risk_selection_change', { selected_count: getSelectedRisks().split(',').filter(Boolean).length });
-        if (getSelectedRisks()) {
-          setRiskError('');
-        }
-      });
-    });
     const bindCtaTracking = (id) => {
       const node = document.getElementById(id);
       if (!node) return;
@@ -562,7 +515,6 @@ export function renderLandingPage(
       event.preventDefault();
       status.textContent = 'Submitting...';
       status.className = 'small';
-      setRiskError('');
 
       if (!emailInput.checkValidity()) {
         emailInput.reportValidity();
@@ -572,17 +524,7 @@ export function renderLandingPage(
         return;
       }
 
-      const selectedRisks = getSelectedRisks();
-      if (!selectedRisks) {
-        setRiskError('Please select at least one risk area.');
-        status.textContent = '';
-        status.className = 'small';
-        track('waitlist_submit_error', { reason: 'missing_risk' });
-        return;
-      }
-
       const formData = new FormData(form);
-      formData.set('interests', selectedRisks);
 
       const response = await fetch('/api/waitlist', {
         method: 'POST',
@@ -607,7 +549,6 @@ export function renderLandingPage(
           utm_source: formData.get('utmSource') || '',
           utm_medium: formData.get('utmMedium') || '',
           utm_campaign: formData.get('utmCampaign') || '',
-          risk_count: selectedRisks.split(',').filter(Boolean).length,
         });
         form.reset();
       }
@@ -907,7 +848,7 @@ export function renderPrivacyPage(siteUrl?: string): string {
     <p>We collect contact and profile information that you submit in the waitlist form, along with attribution metadata (for example UTM parameters) for demand analysis.</p>
     <h2>What We Collect</h2>
     <ul>
-      <li>Work email, company, role, and selected risk interests.</li>
+      <li>Work email, company, role, and optional interests you provide.</li>
       <li>Traffic attribution metadata such as source, campaign, and referrer.</li>
     </ul>
     <h2>How We Use Data</h2>
