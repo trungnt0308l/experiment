@@ -12,7 +12,7 @@ import {
   renderSecurityPage,
   renderTermsPage,
 } from './ui';
-import { createDraftFromIngestionEvent, runIngestionPipeline } from './ingestion';
+import { createDraftFromIngestionEvent, normalizeLongSummaries, runIngestionPipeline } from './ingestion';
 import { llmEnrichIncident } from './llm';
 
 export type EnvBindings = {
@@ -128,6 +128,9 @@ type LatestPublishedSampleRow = {
   severity: string | null;
 };
 
+const INCIDENT_SUMMARY_MAX_CHARS = 420;
+const LANDING_SAMPLE_SUMMARY_MAX_CHARS = 260;
+
 function toSourceKind(value: string): 'hn' | 'nvd' | 'rss' | 'ghsa' | 'cisa_kev' | 'euvd' {
   if (value === 'hn' || value === 'nvd' || value === 'rss' || value === 'ghsa' || value === 'cisa_kev' || value === 'euvd') {
     return value;
@@ -230,7 +233,12 @@ async function fetchPublishedDbIncidents(db: D1Database | undefined): Promise<In
   return rows.map((row) => {
     const sortDate = toSortDate(row.event_published_at ?? row.published_at, row.created_at);
     const title = row.headline || row.title;
-    const summary = row.enriched_summary ?? row.summary ?? row.title;
+    const summary = trimToSentence(
+      collapsePlainText(row.enriched_summary ?? row.summary ?? row.title) ||
+        collapsePlainText(row.title) ||
+        'AI security incident requiring review.',
+      INCIDENT_SUMMARY_MAX_CHARS
+    );
     const severity = (row.severity ?? 'medium').toUpperCase();
     const confidence = row.confidence ? `${Math.round(row.confidence * 100)}%` : 'N/A';
     const incidentDate = formatDate(row.event_published_at ?? row.published_at ?? row.created_at);
@@ -290,11 +298,16 @@ async function fetchLatestLandingSample(db: D1Database | undefined): Promise<Lan
 
   const severity = (row.severity ?? 'medium').toLowerCase();
   const severityLabel = severity === 'high' ? 'High Severity' : severity === 'low' ? 'Low Severity' : 'Medium Severity';
+  const riskSummary = trimToSentence(
+    collapsePlainText(row.enriched_summary?.trim() || row.summary?.trim() || '') ||
+      'Potential AI security exposure requiring triage and validation.',
+    LANDING_SAMPLE_SUMMARY_MAX_CHARS
+  );
 
   return {
     title: row.headline ?? row.title,
     severity: severityLabel,
-    summary: `Risk: ${row.enriched_summary?.trim() || row.summary?.trim() || 'Potential AI security exposure requiring triage and validation.'}`,
+    summary: `Risk: ${riskSummary}`,
     remedy: 'Immediate action: validate exposure scope, apply mitigations/patches, and monitor for related indicators.',
     sourceLabel: `${row.source.toUpperCase()} source`,
     sourceUrl: row.url,
@@ -1013,6 +1026,28 @@ ${entries}
       return c.json({ ok: true, result });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Ingestion run failed';
+      c.header('cache-control', 'no-store, max-age=0');
+      c.header('pragma', 'no-cache');
+      return c.json({ ok: false, error: message }, 500);
+    }
+  });
+
+  app.post('/api/admin/ingestion/normalize-summaries', async (c) => {
+    if (!isAdminAuthorized(c)) {
+      return c.json({ ok: false, error: 'Unauthorized' }, 401);
+    }
+
+    if (!c.env.DB) {
+      return c.json({ ok: false, error: 'DB not configured' }, 503);
+    }
+
+    try {
+      const result = await normalizeLongSummaries(c.env.DB);
+      c.header('cache-control', 'no-store, max-age=0');
+      c.header('pragma', 'no-cache');
+      return c.json({ ok: true, result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Summary normalization failed';
       c.header('cache-control', 'no-store, max-age=0');
       c.header('pragma', 'no-cache');
       return c.json({ ok: false, error: message }, 500);

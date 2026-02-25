@@ -130,6 +130,12 @@ const DEFAULT_RSS_FEEDS = [
   'https://ubuntu.com/security/notices/rss.xml',
 ];
 
+const STORED_SUMMARY_MAX_CHARS = 380;
+const GHSA_TITLE_MAX_CHARS = 220;
+const GHSA_SUMMARY_MAX_CHARS = 380;
+const GHSA_EXCERPT_MAX_CHARS = 170;
+const NORMALIZE_SUMMARY_THRESHOLD_CHARS = 700;
+
 function clampInt(value: string | undefined, fallback: number, min: number, max: number): number {
   if (!value) {
     return fallback;
@@ -193,6 +199,91 @@ function normalizeExternalUrl(url: string, baseUrl: string): string {
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
+}
+
+function stripMarkdownNoise(value: string): string {
+  return value
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/~~~[\s\S]*?~~~/g, ' ')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/!\[[^\]]*]\(([^)]+)\)/g, ' ')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s?/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/\|/g, ' ')
+    .replace(/[*_~]/g, ' ');
+}
+
+function trimToSentence(value: string, max: number): string {
+  const normalized = value.trim();
+  if (normalized.length <= max) {
+    return normalized;
+  }
+  const clipped = normalized.slice(0, max).trim();
+  const punctuation = Math.max(clipped.lastIndexOf('.'), clipped.lastIndexOf('!'), clipped.lastIndexOf('?'));
+  if (punctuation >= Math.floor(max * 0.45)) {
+    return clipped.slice(0, punctuation + 1).trim();
+  }
+  const lastSpace = clipped.lastIndexOf(' ');
+  if (lastSpace >= Math.floor(max * 0.6)) {
+    return `${clipped.slice(0, lastSpace).trim()}...`;
+  }
+  return `${clipped}...`;
+}
+
+function summaryCompareKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+export function compactSummaryText(value: string, maxChars = STORED_SUMMARY_MAX_CHARS): string {
+  const plain = normalizeWhitespace(stripTags(stripMarkdownNoise(value)));
+  if (!plain) {
+    return '';
+  }
+  return trimToSentence(plain, Math.max(80, maxChars));
+}
+
+function firstSentence(value: string, maxChars: number): string {
+  const compact = compactSummaryText(value, maxChars);
+  if (!compact) {
+    return '';
+  }
+  const sentenceMatch = compact.match(/^(.+?[.!?])(?:\s|$)/);
+  return sentenceMatch?.[1]?.trim() ?? compact;
+}
+
+function normalizeStoredSummary(value: string, maxChars = STORED_SUMMARY_MAX_CHARS): string {
+  const compact = compactSummaryText(value, maxChars);
+  if (compact) {
+    return compact;
+  }
+  return trimToSentence(normalizeWhitespace(value), maxChars);
+}
+
+export function summarizeGitHubAdvisory(
+  summary: string,
+  description?: string,
+  maxChars = GHSA_SUMMARY_MAX_CHARS
+): string {
+  const headline = compactSummaryText(summary, Math.min(maxChars, GHSA_TITLE_MAX_CHARS));
+  const excerpt = firstSentence(description ?? '', GHSA_EXCERPT_MAX_CHARS);
+  if (!headline) {
+    return normalizeStoredSummary(description ?? '', maxChars);
+  }
+
+  const headlineKey = summaryCompareKey(headline);
+  const excerptKey = summaryCompareKey(excerpt);
+  const shouldAppendExcerpt = Boolean(
+    excerpt &&
+    excerptKey &&
+    headlineKey &&
+    !headlineKey.includes(excerptKey) &&
+    !excerptKey.includes(headlineKey)
+  );
+
+  return normalizeStoredSummary(shouldAppendExcerpt ? `${headline} ${excerpt}` : headline, maxChars);
 }
 
 function shorten(value: string, maxLength: number): string {
@@ -422,8 +513,10 @@ async function toStoredEvent(input: SourceEvent): Promise<StoredEvent | null> {
 
   const basis = normalizeWhitespace(`${input.source}|${input.url.toLowerCase()}|${input.title.toLowerCase()}`);
   const fingerprint = await sha256Hex(basis);
+  const normalizedSummary = normalizeStoredSummary(input.summary, STORED_SUMMARY_MAX_CHARS) || input.title;
   return {
     ...input,
+    summary: normalizedSummary,
     severity: inferSeverity(input.title, input.summary),
     confidence: Math.max(0.45, Math.min(0.99, relevance)),
     fingerprint,
@@ -621,20 +714,123 @@ async function fetchGitHubAdvisoryEvents(fetchFn: FetchLike, token?: string): Pr
   return (body ?? [])
     .map((item) => {
       const externalId = item.ghsa_id ?? item.aliases?.[0] ?? '';
-      const summary = normalizeWhitespace(item.description ?? item.summary ?? '');
-      if (!externalId || !item.summary || !item.html_url) {
+      const titleBase = compactSummaryText(item.summary ?? '', GHSA_TITLE_MAX_CHARS);
+      const summary = summarizeGitHubAdvisory(item.summary ?? '', item.description, GHSA_SUMMARY_MAX_CHARS);
+      if (!externalId || !titleBase || !item.html_url) {
         return null;
       }
       return {
         source: 'ghsa' as const,
         externalId,
-        title: `${item.summary} (${externalId})`,
+        title: `${titleBase} (${externalId})`,
         url: item.html_url,
         summary,
         publishedAt: item.published_at ?? null,
       };
     })
     .filter(isPresent);
+}
+
+export type NormalizeSummariesResult = {
+  scannedEvents: number;
+  updatedEvents: number;
+  scannedDraftSummaries: number;
+  updatedDraftSummaries: number;
+  unchanged: number;
+  thresholdChars: number;
+  maxChars: number;
+};
+
+type LongEventSummaryRow = {
+  id: number;
+  summary: string | null;
+};
+
+type LongDraftSummaryRow = {
+  id: number;
+  enriched_summary: string | null;
+};
+
+export async function normalizeLongSummaries(
+  db: D1Database,
+  input?: { thresholdChars?: number; maxChars?: number }
+): Promise<NormalizeSummariesResult> {
+  const thresholdChars = Math.min(Math.max(input?.thresholdChars ?? NORMALIZE_SUMMARY_THRESHOLD_CHARS, 180), 20_000);
+  const maxChars = Math.min(Math.max(input?.maxChars ?? STORED_SUMMARY_MAX_CHARS, 120), 1_000);
+  let scannedEvents = 0;
+  let updatedEvents = 0;
+  let scannedDraftSummaries = 0;
+  let updatedDraftSummaries = 0;
+
+  const longEventRows = await db
+    .prepare(
+      `SELECT id, summary
+       FROM ingested_events
+       WHERE summary IS NOT NULL
+         AND length(summary) > ?1`
+    )
+    .bind(thresholdChars)
+    .all<LongEventSummaryRow>();
+
+  for (const row of longEventRows.results ?? []) {
+    scannedEvents += 1;
+    const current = row.summary ?? '';
+    const normalized = normalizeStoredSummary(current, maxChars);
+    if (!normalized || normalized === current) {
+      continue;
+    }
+    const result = await db
+      .prepare(
+        `UPDATE ingested_events
+         SET summary = ?1
+         WHERE id = ?2`
+      )
+      .bind(normalized, row.id)
+      .run();
+    if ((result.meta?.changes ?? 0) > 0) {
+      updatedEvents += 1;
+    }
+  }
+
+  const longDraftRows = await db
+    .prepare(
+      `SELECT id, enriched_summary
+       FROM draft_posts
+       WHERE enriched_summary IS NOT NULL
+         AND length(enriched_summary) > ?1`
+    )
+    .bind(thresholdChars)
+    .all<LongDraftSummaryRow>();
+
+  for (const row of longDraftRows.results ?? []) {
+    scannedDraftSummaries += 1;
+    const current = row.enriched_summary ?? '';
+    const normalized = normalizeStoredSummary(current, maxChars);
+    if (!normalized || normalized === current) {
+      continue;
+    }
+    const result = await db
+      .prepare(
+        `UPDATE draft_posts
+         SET enriched_summary = ?1
+         WHERE id = ?2`
+      )
+      .bind(normalized, row.id)
+      .run();
+    if ((result.meta?.changes ?? 0) > 0) {
+      updatedDraftSummaries += 1;
+    }
+  }
+
+  return {
+    scannedEvents,
+    updatedEvents,
+    scannedDraftSummaries,
+    updatedDraftSummaries,
+    unchanged: scannedEvents + scannedDraftSummaries - updatedEvents - updatedDraftSummaries,
+    thresholdChars,
+    maxChars,
+  };
 }
 
 async function fetchCisaKevEvents(fetchFn: FetchLike): Promise<SourceEvent[]> {
