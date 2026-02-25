@@ -96,6 +96,14 @@ curl -X POST \
   "https://aisecurityradar.com/api/admin/ingestion/run"
 ```
 
+One-time backfill trigger (auto-publish eligible high-severity incidents from last 60 days):
+```bash
+curl -X POST \
+  -H "Authorization: Bearer your-long-random-token" \
+  "https://aisecurityradar.com/api/admin/ingestion/autopublish-backfill"
+```
+Response includes: `scanned`, `eligible`, `draftsCreated`, `alreadyHadDraft`, and `windowDays`.
+
 Read generated drafts:
 ```bash
 curl -H "Authorization: Bearer your-long-random-token" \
@@ -106,10 +114,11 @@ Browser-based operation (no curl):
 1. Open `https://aisecurityradar.com/admin/ops`
 2. Paste `ADMIN_API_TOKEN` into the token field.
 3. Click **Run Ingestion Now**.
-4. Review drafts sorted by incident date.
-5. Click **Approve** then **Publish** per draft.
-6. Published drafts automatically appear on `/incidents` and `/incidents/:slug`, sorted newest first.
-7. Use **Reset Ingestion DB** to clear ingested events and drafts before rerunning ingestion.
+4. (Optional) Click **Backfill Auto-Publish (60d)** to auto-publish eligible high-severity incidents from existing ingestion rows.
+5. Review drafts sorted by incident date.
+6. Click **Approve** then **Publish** per draft.
+7. Published drafts automatically appear on `/incidents` and `/incidents/:slug`, sorted newest first.
+8. Use **Reset Ingestion DB** to clear ingested events and drafts before rerunning ingestion.
 
 Feed overrides:
 - Set `RSS_FEEDS` as a comma-separated list of RSS/Atom URLs in env vars.
@@ -127,7 +136,8 @@ Feed overrides:
 - HN uses an incident-only gate (CVE/exploit/breach/prompt-injection patterns) and excludes common HN noise patterns (Show HN, benchmarks, generic launches).
 - Set `HN_MAX_ITEMS` (default `8`) to cap HN subrequests and avoid Worker resource-limit errors.
 - Set `ENABLE_HN_SOURCE=false` to disable HN ingestion temporarily.
-- Auto-publish rule: incidents from trusted sources in `AUTO_PUBLISH_TRUSTED_SOURCES` (default `nvd`) and meeting `AUTO_PUBLISH_MIN_SEVERITY` (default `high`) are published immediately.
+- Auto-publish rule: incidents from trusted sources in `AUTO_PUBLISH_TRUSTED_SOURCES` (default `all`) and meeting `AUTO_PUBLISH_MIN_SEVERITY` (default `high`) are published immediately.
+- `AUTO_PUBLISH_TRUSTED_SOURCES=all` is supported explicitly; set a comma-separated subset (for example `nvd,ghsa`) to restrict auto-publish.
 
 Behavior:
 - On each new waitlist signup (`joined` only), app sends notification attempts to Email (Resend) and Telegram.

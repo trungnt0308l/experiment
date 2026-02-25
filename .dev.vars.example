@@ -17,5 +17,5 @@ RSS_FEEDS=https://www.kb.cert.org/vuls/atomfeed/,https://cert.europa.eu/publicat
 MAX_EVENT_AGE_DAYS=60
 ENABLE_HN_SOURCE=true
 HN_MAX_ITEMS=8
-AUTO_PUBLISH_TRUSTED_SOURCES=nvd
+AUTO_PUBLISH_TRUSTED_SOURCES=all
 AUTO_PUBLISH_MIN_SEVERITY=high

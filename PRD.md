@@ -286,3 +286,4 @@ Teams need a single low-cost service that detects relevant AI security incidents
 ## Changelog
 - [2026-02-14] Initial PRD created for implementation kickoff with phased goals, verification steps, and exit criteria.
 - [2026-02-14] Added implementation default: GPT-5 mini optional layer for semantic dedupe and published-incident enrichment, with budget caps and fallback to deterministic pipeline when LLM is unavailable.
+- [2026-02-25] homepage-friction-autopublish-all-high: Made homepage interest selection optional to reduce signup friction, changed auto-publish trusted-source default to all sources for high-severity incidents, and added one-time 60-day admin backfill for eligible ingested incidents without drafts.

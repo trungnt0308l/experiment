@@ -21,8 +21,10 @@ describe('waitlist endpoint', () => {
     expect(html).toContain('name="utmSource"');
     expect(html).toContain('name="utmMedium"');
     expect(html).toContain('name="utmCampaign"');
-    expect(html).toContain('name="riskOption"');
+    expect(html).not.toContain('name="riskOption"');
     expect(html).toContain('href="/privacy"');
+    expect(html).toContain('What delay can cost your organization');
+    expect(html).toContain('https://www.ibm.com/security/data-breach');
     expect(html).toContain('No published incidents yet.');
     expect(html).toContain('A verified sample alert will appear here after the first published incident.');
     expect(html).not.toContain('/admin/ops');
@@ -101,6 +103,12 @@ describe('waitlist endpoint', () => {
   test('rejects unauthorized admin access', async () => {
     const app = createApp();
     const res = await app.request('http://localhost/api/admin/signups', undefined, makeEnv());
+    expect(res.status).toBe(401);
+  });
+
+  test('rejects unauthorized auto-publish backfill endpoint', async () => {
+    const app = createApp();
+    const res = await app.request('http://localhost/api/admin/ingestion/autopublish-backfill', { method: 'POST' }, makeEnv());
     expect(res.status).toBe(401);
   });
 
@@ -233,6 +241,20 @@ describe('waitlist endpoint', () => {
     expect(res.status).toBe(503);
   });
 
+  test('returns DB not configured on auto-publish backfill endpoint', async () => {
+    const app = createApp();
+    const env = { APP_NAME: 'Test App', ADMIN_API_TOKEN: 'top-secret-token' };
+    const res = await app.request(
+      'http://localhost/api/admin/ingestion/autopublish-backfill',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer top-secret-token' },
+      },
+      env
+    );
+    expect(res.status).toBe(503);
+  });
+
   test('returns DB not configured on incidents clear endpoint', async () => {
     const app = createApp();
     const env = { APP_NAME: 'Test App', ADMIN_API_TOKEN: 'top-secret-token' };
@@ -273,6 +295,31 @@ describe('waitlist endpoint', () => {
       utmCampaign: 'phase0',
       referrer: 'https://google.com',
       landingPath: '/?utm_source=google',
+    });
+
+    const res = await app.request('http://localhost/api/waitlist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    }, makeEnv());
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as WaitlistApiResponse;
+    expect(body.ok).toBe(true);
+    expect(body.status).toBe('joined');
+  });
+
+  test('accepts valid signup without interests', async () => {
+    const app = createApp();
+
+    const form = new URLSearchParams({
+      email: 'no-interests@example.com',
+      source: 'test',
+      utmSource: 'newsletter',
+      utmMedium: 'email',
+      utmCampaign: 'launch',
+      referrer: 'direct',
+      landingPath: '/',
     });
 
     const res = await app.request('http://localhost/api/waitlist', {

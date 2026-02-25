@@ -54,6 +54,14 @@ export type RuntimeCaps = {
   llmEnrichMaxCalls: number;
 };
 
+export type AutoPublishBackfillResult = {
+  scanned: number;
+  eligible: number;
+  draftsCreated: number;
+  alreadyHadDraft: number;
+  windowDays: number;
+};
+
 type FetchLike = typeof fetch;
 
 const AI_TERMS = [
@@ -129,6 +137,8 @@ const DEFAULT_RSS_FEEDS = [
   'https://aws.amazon.com/security/security-bulletins/rss/feed/',
   'https://ubuntu.com/security/notices/rss.xml',
 ];
+
+const ALL_SOURCE_KEYS: SourceEvent['source'][] = ['hn', 'nvd', 'rss', 'ghsa', 'cisa_kev', 'euvd'];
 
 function clampInt(value: string | undefined, fallback: number, min: number, max: number): number {
   if (!value) {
@@ -388,14 +398,26 @@ function minSeverity(env: EnvBindings): 'low' | 'medium' | 'high' {
   return 'high';
 }
 
+function isSourceKey(value: string): value is SourceEvent['source'] {
+  return ALL_SOURCE_KEYS.includes(value as SourceEvent['source']);
+}
+
 function trustedSources(env: EnvBindings): Set<string> {
-  const raw = env.AUTO_PUBLISH_TRUSTED_SOURCES ?? 'nvd';
-  return new Set(
-    raw
-      .split(',')
-      .map((x) => x.trim().toLowerCase())
-      .filter(Boolean)
-  );
+  const raw = (env.AUTO_PUBLISH_TRUSTED_SOURCES ?? 'all').toLowerCase();
+  const normalized = raw
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  if (normalized.length === 0 || normalized.includes('all')) {
+    return new Set(ALL_SOURCE_KEYS);
+  }
+
+  const constrained = normalized.filter(isSourceKey);
+  if (constrained.length === 0) {
+    return new Set(ALL_SOURCE_KEYS);
+  }
+  return new Set(constrained);
 }
 
 export function shouldAutoPublish(event: StoredEvent, env: EnvBindings): boolean {
@@ -889,6 +911,96 @@ export async function createDraftFromIngestionEvent(
   const nowIso = new Date().toISOString();
   const draft = buildDraftPost(event, nowIso, false);
   return storeDraft(env.DB, eventId, draft, nowIso);
+}
+
+type BackfillCandidateRow = {
+  id: number;
+  source: string;
+  external_id: string;
+  title: string;
+  url: string;
+  summary: string | null;
+  published_at: string | null;
+  severity: 'low' | 'medium' | 'high' | null;
+  confidence: number | null;
+  fingerprint: string | null;
+};
+
+export async function autoPublishHighSeverityBackfill(
+  env: EnvBindings,
+  windowDays = 60
+): Promise<AutoPublishBackfillResult> {
+  if (!env.DB) {
+    throw new Error('DB not configured');
+  }
+
+  const clampedWindowDays = Math.min(Math.max(Math.floor(windowDays), 1), 365);
+  const rows = await env.DB
+    .prepare(
+      `SELECT
+         e.id,
+         e.source,
+         e.external_id,
+         e.title,
+         e.url,
+         e.summary,
+         e.published_at,
+         e.severity,
+         e.confidence,
+         e.fingerprint
+       FROM ingested_events e
+       LEFT JOIN draft_posts d ON d.event_id = e.id
+       WHERE d.id IS NULL
+         AND datetime(COALESCE(e.published_at, e.created_at)) >= datetime('now', ?1)
+       ORDER BY datetime(COALESCE(e.published_at, e.created_at)) DESC`
+    )
+    .bind(`-${clampedWindowDays} days`)
+    .all<BackfillCandidateRow>();
+
+  const nowIso = new Date().toISOString();
+  let scanned = 0;
+  let eligible = 0;
+  let draftsCreated = 0;
+  let alreadyHadDraft = 0;
+
+  for (const row of rows.results ?? []) {
+    scanned += 1;
+
+    const source = isSourceKey(row.source) ? row.source : 'rss';
+    const confidenceFallback = scoreIncidentRelevance(row.title, row.summary ?? '', source);
+    const event: StoredEvent = {
+      source,
+      externalId: row.external_id,
+      title: row.title,
+      url: row.url,
+      summary: row.summary ?? '',
+      publishedAt: row.published_at,
+      severity: row.severity ?? inferSeverity(row.title, row.summary ?? ''),
+      confidence: row.confidence ?? Math.max(0.45, Math.min(0.99, confidenceFallback)),
+      fingerprint: row.fingerprint ?? '',
+    };
+
+    if (!shouldAutoPublish(event, env)) {
+      continue;
+    }
+    eligible += 1;
+
+    const draft = buildDraftPost(event, nowIso, true);
+    const savedDraft = await storeDraft(env.DB, row.id, draft, nowIso);
+    if (savedDraft.inserted) {
+      draftsCreated += 1;
+    } else {
+      alreadyHadDraft += 1;
+    }
+  }
+
+  return {
+    scanned,
+    eligible,
+    draftsCreated,
+    alreadyHadDraft,
+    windowDays: clampedWindowDays,
+  };
 }
 
 export async function runIngestionPipeline(

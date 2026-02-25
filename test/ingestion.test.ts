@@ -103,6 +103,24 @@ describe('ingestion helpers', () => {
     expect(ok).toBe(true);
   });
 
+  test('auto-publishes high severity incidents from GHSA by default', () => {
+    const ok = shouldAutoPublish(
+      {
+        source: 'ghsa',
+        externalId: 'GHSA-1234',
+        title: 'Critical AI plugin compromise',
+        url: 'https://github.com/advisories/GHSA-1234',
+        summary: 'Critical exploit path in an AI integration plugin.',
+        publishedAt: '2026-02-14T00:00:00.000Z',
+        severity: 'high',
+        confidence: 0.88,
+        fingerprint: 'ghi',
+      },
+      {}
+    );
+    expect(ok).toBe(true);
+  });
+
   test('treats GHSA advisories as security-first and requires AI context', () => {
     const relevant = isLikelyAiSecurityIncident(
       'GHSA-xxxx prompt injection vulnerability in LLM plugin',
@@ -127,6 +145,23 @@ describe('ingestion helpers', () => {
     };
     expect(shouldAutoPublish(event, {})).toBe(false);
     expect(shouldAutoPublish(event, { AUTO_PUBLISH_MIN_SEVERITY: 'medium' })).toBe(true);
+  });
+
+  test('honors restricted trusted-source override', () => {
+    const highGhsaEvent = {
+      source: 'ghsa' as const,
+      externalId: 'GHSA-9999',
+      title: 'Critical prompt injection chain',
+      url: 'https://github.com/advisories/GHSA-9999',
+      summary: 'Critical issue',
+      publishedAt: '2026-02-14T00:00:00.000Z',
+      severity: 'high' as const,
+      confidence: 0.9,
+      fingerprint: 'jkl',
+    };
+
+    expect(shouldAutoPublish(highGhsaEvent, { AUTO_PUBLISH_TRUSTED_SOURCES: 'nvd' })).toBe(false);
+    expect(shouldAutoPublish(highGhsaEvent, { AUTO_PUBLISH_TRUSTED_SOURCES: 'all' })).toBe(true);
   });
 
   test('applies safe runtime cap defaults and clamps', () => {

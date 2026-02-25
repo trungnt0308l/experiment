@@ -12,7 +12,7 @@ import {
   renderSecurityPage,
   renderTermsPage,
 } from './ui';
-import { createDraftFromIngestionEvent, runIngestionPipeline } from './ingestion';
+import { autoPublishHighSeverityBackfill, createDraftFromIngestionEvent, runIngestionPipeline } from './ingestion';
 import { llmEnrichIncident } from './llm';
 
 export type EnvBindings = {
@@ -440,7 +440,7 @@ const schema = z.object({
   email: z.string().email().max(200),
   company: z.string().max(120).optional().or(z.literal('')).transform((value) => value ?? ''),
   role: z.string().max(120).optional().or(z.literal('')).transform((value) => value ?? ''),
-  interests: z.string().min(2).max(240),
+  interests: z.string().max(240).optional().or(z.literal('')).transform((value) => value ?? ''),
   source: z.string().max(120).optional().or(z.literal('')),
   utmSource: z.string().max(120).optional().or(z.literal('')),
   utmMedium: z.string().max(120).optional().or(z.literal('')),
@@ -725,6 +725,7 @@ async function sendEmailNotification(env: EnvBindings, signup: WaitlistSignup): 
   if (!env.RESEND_API_KEY || !env.NOTIFY_EMAIL_TO) {
     return;
   }
+  const interestsLabel = signup.interests.trim() ? signup.interests : '(not provided)';
 
   const payload = {
     from: 'AI Security Radar <alerts@aisecurityradar.com>',
@@ -734,7 +735,7 @@ async function sendEmailNotification(env: EnvBindings, signup: WaitlistSignup): 
       `Email: ${signup.email}`,
       ...(signup.company ? [`Company: ${signup.company}`] : []),
       ...(signup.role ? [`Role: ${signup.role}`] : []),
-      `Interests: ${signup.interests}`,
+      `Interests: ${interestsLabel}`,
       `Source: ${signup.source ?? ''}`,
       `UTM: ${signup.utmSource ?? ''}/${signup.utmMedium ?? ''}/${signup.utmCampaign ?? ''}`,
     ].join('\n'),
@@ -754,13 +755,14 @@ async function sendTelegramNotification(env: EnvBindings, signup: WaitlistSignup
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
     return;
   }
+  const interestsLabel = signup.interests.trim() ? signup.interests : '(not provided)';
 
   const text = [
     'New waitlist signup',
     `Email: ${signup.email}`,
     ...(signup.company ? [`Company: ${signup.company}`] : []),
     ...(signup.role ? [`Role: ${signup.role}`] : []),
-    `Risks: ${signup.interests}`,
+    `Risks: ${interestsLabel}`,
   ].join('\n');
 
   await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
@@ -1013,6 +1015,28 @@ ${entries}
       return c.json({ ok: true, result });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Ingestion run failed';
+      c.header('cache-control', 'no-store, max-age=0');
+      c.header('pragma', 'no-cache');
+      return c.json({ ok: false, error: message }, 500);
+    }
+  });
+
+  app.post('/api/admin/ingestion/autopublish-backfill', async (c) => {
+    if (!isAdminAuthorized(c)) {
+      return c.json({ ok: false, error: 'Unauthorized' }, 401);
+    }
+
+    if (!c.env.DB) {
+      return c.json({ ok: false, error: 'DB not configured' }, 503);
+    }
+
+    try {
+      const result = await autoPublishHighSeverityBackfill(c.env, 60);
+      c.header('cache-control', 'no-store, max-age=0');
+      c.header('pragma', 'no-cache');
+      return c.json({ ok: true, result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Backfill failed';
       c.header('cache-control', 'no-store, max-age=0');
       c.header('pragma', 'no-cache');
       return c.json({ ok: false, error: message }, 500);

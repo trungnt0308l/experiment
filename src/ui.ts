@@ -314,6 +314,17 @@ export function renderLandingPage(
       text-align: center;
       color: var(--muted);
     }
+    .facts {
+      margin-bottom: 14px;
+      background: #fff;
+      border: 1px solid var(--line);
+      padding: 16px;
+    }
+    .facts p { margin-bottom: 10px; font-size: 15px; }
+    .facts ul { margin: 0; padding-left: 18px; }
+    .facts li { margin-bottom: 10px; font-size: 15px; }
+    .facts a { color: var(--accent); font-size: 13px; }
+    .fact-source { display: inline-block; margin-left: 6px; }
     .grid {
       display: grid;
       grid-template-columns: 1.2fr .8fr;
@@ -358,16 +369,6 @@ export function renderLandingPage(
       font-family: inherit;
       background: #fff;
     }
-    .option-list {
-      border: 1px solid #9e978c;
-      border-radius: 3px;
-      padding: 10px;
-      margin-bottom: 12px;
-      background: #fff;
-    }
-    .option-item { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; }
-    .option-item:last-child { margin-bottom: 0; }
-    input[type="checkbox"] { width: auto; margin: 0; flex: 0 0 auto; }
     .actions { display: grid; gap: 8px; }
     button {
       border: 0;
@@ -389,7 +390,6 @@ export function renderLandingPage(
     .links { margin-top: 6px; display: flex; gap: 10px; }
     .links a { color: var(--accent); font-size: 13px; }
     .small { font-size: 13px; color: #4d483f; margin-top: 8px; }
-    .field-error { font-size: 13px; color: var(--danger); margin: -6px 0 10px; }
     .ok { color: var(--good); }
     .err { color: var(--danger); }
     .site-footer {
@@ -414,9 +414,9 @@ export function renderLandingPage(
     ${renderSiteHeader(appName)}
 
     <section class="hero">
-      <h1>When AI security incidents break, <span class="risk">minutes decide the outcome.</span></h1>
-      <p>Get verified AI threat alerts with immediate remediation actions so your team can contain risk before it turns into a breach or compliance event.</p>
-      <p class="sub">Built for security and risk teams that need faster awareness, better evidence, and clearer response ownership.</p>
+      <h1>AI security incidents move fast. <span class="risk">Staying uninformed is expensive.</span></h1>
+      <p>Get verified incident alerts with immediate remediation guidance so your team can contain exposure before legal, operational, and financial impact compounds.</p>
+      <p class="sub">Built for security, risk, and engineering leaders who need faster awareness, defensible evidence, and clear owner handoffs.</p>
       <div class="hero-cta">
         <a class="btn-cta" id="hero-get-notified" data-cta="hero_get_notified" href="#waitlist-form">Get Notified</a>
         <a class="btn-ghost" href="/incidents">See Recent Incidents</a>
@@ -424,20 +424,46 @@ export function renderLandingPage(
     </section>
 
     <section class="proof-row" aria-label="Data sources">
-      <div class="proof">Monitors CISA KEV and NVD</div>
-      <div class="proof">Tracks GitHub Advisories and CERT feeds</div>
-      <div class="proof">Source-cited recommendations</div>
-      <div class="proof">Email + Telegram delivery</div>
+      <div class="proof">Monitors NVD, GHSA, CISA KEV, EUVD, CERT, and curated feeds</div>
+      <div class="proof">Prioritizes high-severity AI-relevant incidents</div>
+      <div class="proof">Source-cited recommendations for fast containment</div>
+      <div class="proof">Delivery via email and Telegram</div>
+    </section>
+
+    <section class="facts" aria-label="Cost of delayed awareness">
+      <h2>What delay can cost your organization</h2>
+      <p>Ignoring early warnings increases breach impact, recovery cost, and leadership risk. Recent data underscores why early detection matters:</p>
+      <ul>
+        <li>
+          IBM reports organizations with mature AI governance/security controls experienced significantly lower average breach costs, and identifies a multi-million-dollar average breach cost baseline.
+          <span class="fact-source"><a href="https://www.ibm.com/security/data-breach" target="_blank" rel="noopener noreferrer">IBM Cost of a Data Breach Report 2025</a></span>
+        </li>
+        <li>
+          Verizon's 2025 DBIR shows exploitation of vulnerabilities rose sharply year-over-year, reducing the margin for delayed patch and mitigation decisions.
+          <span class="fact-source"><a href="https://www.verizon.com/about/news/2025-data-breach-investigations-report" target="_blank" rel="noopener noreferrer">Verizon 2025 DBIR</a></span>
+        </li>
+        <li>
+          ENISA's 2025 landscape highlights sustained pressure from disruptive attack patterns, with DDoS and ransomware impacts still driving major operational disruption.
+          <span class="fact-source"><a href="https://www.enisa.europa.eu/publications/enisa-threat-landscape-2025" target="_blank" rel="noopener noreferrer">ENISA Threat Landscape 2025</a></span>
+        </li>
+      </ul>
     </section>
 
     <section class="grid">
       <article class="panel">
-        <h2>How It Works</h2>
+        <h2>What You Get</h2>
         <ol class="list steps">
-          <li>Collects AI-security incident signals from curated high-noise channels and advisories.</li>
-          <li>Triages and scores incident relevance and urgency for security teams.</li>
-          <li>Sends concise alert briefs with impact, remedy checklist, and citations.</li>
+          <li>Continuous monitoring across high-signal advisories and incident channels.</li>
+          <li>Severity and relevance triage focused on AI security exposure.</li>
+          <li>Concise alert briefs with impact, immediate actions, and citations.</li>
         </ol>
+
+        <h3>Why teams use it</h3>
+        <ul class="list">
+          <li>Reduce time from signal to first containment action.</li>
+          <li>Avoid missing high-severity items buried in noisy feeds.</li>
+          <li>Improve audit readiness with source-linked evidence.</li>
+        </ul>
 
         <h3>Sample Alert</h3>
         ${sampleAlertCard}
@@ -447,17 +473,6 @@ export function renderLandingPage(
         <h2>Request Access</h2>
         <label for="email">Work Email</label>
         <input id="email" name="email" type="email" required />
-
-        <label>Which risks should we monitor for you? (Select all that apply)</label>
-        <div class="option-list" role="group" aria-label="Risk interests">
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Prompt injection attacks" /> Prompt injection attacks</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Data leakage in AI tools" /> Data leakage in AI tools</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Shadow AI usage" /> Shadow AI usage</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Model supply chain risk" /> Model supply chain risk</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Compliance and regulatory exposure" /> Compliance and regulatory exposure</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Agent abuse and privilege misuse" /> Agent abuse and privilege misuse</label>
-        </div>
-        <p id="risk-error" class="field-error" style="display:none;" aria-live="polite">Please select at least one risk area.</p>
         <div class="actions">
           <button type="submit">Get Notified</button>
         </div>
@@ -484,7 +499,6 @@ export function renderLandingPage(
   <script>
     const form = document.getElementById('waitlist-form');
     const status = document.getElementById('status');
-    const riskError = document.getElementById('risk-error');
     const params = new URLSearchParams(window.location.search);
     const emailInput = document.getElementById('email');
 
@@ -506,31 +520,6 @@ export function renderLandingPage(
     setField('utmCampaign', utmCampaign);
     setField('referrer', document.referrer || 'direct');
     setField('landingPath', window.location.pathname + window.location.search);
-
-    const getSelectedRisks = () => Array.from(form.querySelectorAll('input[name="riskOption"]:checked'))
-      .map((el) => el.value)
-      .join(', ');
-    const setRiskError = (message) => {
-      if (!riskError) {
-        return;
-      }
-      if (!message) {
-        riskError.textContent = '';
-        riskError.style.display = 'none';
-        return;
-      }
-      riskError.textContent = message;
-      riskError.style.display = 'block';
-    };
-
-    form.querySelectorAll('input[name="riskOption"]').forEach((el) => {
-      el.addEventListener('change', () => {
-        track('risk_selection_change', { selected_count: getSelectedRisks().split(',').filter(Boolean).length });
-        if (getSelectedRisks()) {
-          setRiskError('');
-        }
-      });
-    });
     const bindCtaTracking = (id) => {
       const node = document.getElementById(id);
       if (!node) return;
@@ -545,7 +534,6 @@ export function renderLandingPage(
       event.preventDefault();
       status.textContent = 'Submitting...';
       status.className = 'small';
-      setRiskError('');
 
       if (!emailInput.checkValidity()) {
         emailInput.reportValidity();
@@ -555,17 +543,9 @@ export function renderLandingPage(
         return;
       }
 
-      const selectedRisks = getSelectedRisks();
-      if (!selectedRisks) {
-        setRiskError('Please select at least one risk area.');
-        status.textContent = '';
-        status.className = 'small';
-        track('waitlist_submit_error', { reason: 'missing_risk' });
-        return;
-      }
-
       const formData = new FormData(form);
-      formData.set('interests', selectedRisks);
+      const interestsValue = String(formData.get('interests') || '').trim();
+      formData.set('interests', interestsValue);
 
       const response = await fetch('/api/waitlist', {
         method: 'POST',
@@ -590,7 +570,7 @@ export function renderLandingPage(
           utm_source: formData.get('utmSource') || '',
           utm_medium: formData.get('utmMedium') || '',
           utm_campaign: formData.get('utmCampaign') || '',
-          risk_count: selectedRisks.split(',').filter(Boolean).length,
+          interests_provided: interestsValue.length > 0,
         });
         form.reset();
       }
@@ -885,7 +865,7 @@ export function renderPrivacyPage(siteUrl?: string): string {
     <p>We collect contact and profile information that you submit in the waitlist form, along with attribution metadata (for example UTM parameters) for demand analysis.</p>
     <h2>What We Collect</h2>
     <ul>
-      <li>Work email, company, role, and selected risk interests.</li>
+      <li>Work email, company, role, and optional interest context you provide.</li>
       <li>Traffic attribution metadata such as source, campaign, and referrer.</li>
     </ul>
     <h2>How We Use Data</h2>
@@ -1038,6 +1018,7 @@ export function renderAdminOpsPage(siteUrl?: string): string {
       <input id="limit" type="number" min="1" max="200" value="20" />
       <div>
         <button class="btn" id="run-btn" type="button">Run Ingestion Now</button>
+        <button class="btn secondary" id="backfill-autopublish-btn" type="button">Backfill Auto-Publish (60d)</button>
         <button class="btn secondary" id="load-ingestions-btn" type="button">Load Ingestions</button>
         <button class="btn secondary" id="clear-incidents-btn" type="button">Clear Incidents</button>
         <button class="btn warn" id="reset-ingestion-btn" type="button">Reset Ingestion DB</button>
@@ -1058,6 +1039,7 @@ export function renderAdminOpsPage(siteUrl?: string): string {
     const tokenEl = document.getElementById('token');
     const limitEl = document.getElementById('limit');
     const runBtn = document.getElementById('run-btn');
+    const backfillAutoPublishBtn = document.getElementById('backfill-autopublish-btn');
     const loadIngestionsBtn = document.getElementById('load-ingestions-btn');
     const clearIncidentsBtn = document.getElementById('clear-incidents-btn');
     const resetIngestionBtn = document.getElementById('reset-ingestion-btn');
@@ -1207,6 +1189,29 @@ export function renderAdminOpsPage(siteUrl?: string): string {
         );
       } catch (error) {
         setStatus(error.message || 'Request failed', 'err');
+      }
+    });
+
+    backfillAutoPublishBtn.addEventListener('click', async () => {
+      try {
+        const confirmed = window.confirm('This will auto-publish eligible high-severity ingestion rows from the last 60 days. Continue?');
+        if (!confirmed) {
+          return;
+        }
+        setStatus('Backfilling auto-publish drafts for last 60 days...', '');
+        const body = await api('/api/admin/ingestion/autopublish-backfill', { method: 'POST' });
+        const result = body.result || {};
+        await loadIngestions();
+        setStatus(
+          'Backfill complete. scanned=' + (result.scanned || 0) +
+          ', eligible=' + (result.eligible || 0) +
+          ', drafts_created=' + (result.draftsCreated || 0) +
+          ', already_had_draft=' + (result.alreadyHadDraft || 0) +
+          ', window_days=' + (result.windowDays || 60),
+          'ok'
+        );
+      } catch (error) {
+        setStatus(error.message || 'Action failed', 'err');
       }
     });
 
