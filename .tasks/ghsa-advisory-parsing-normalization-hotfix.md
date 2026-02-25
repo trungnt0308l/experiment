@@ -1,11 +1,11 @@
 # Task: ghsa-advisory-parsing-normalization-hotfix
 
 ## Meta
-- **Status**: VERIFICATION
+- **Status**: REVIEW
 - **Branch**: fix/ghsa-advisory-parsing-normalization-hotfix
-- **PR**: (link once created)
+- **PR**: https://github.com/trungnt0308l/experiment/pull/new/fix/ghsa-advisory-parsing-normalization-hotfix
 - **Created**: 2026-02-25 22:22:35 +07:00
-- **Last Updated**: 2026-02-25 22:31:50 +07:00
+- **Last Updated**: 2026-02-25 22:34:01 +07:00
 
 ## Objective
 Fix GHSA ingestion and long-summary rendering so incident/homepage views remain concise and stable.
@@ -27,6 +27,8 @@ Fix GHSA ingestion and long-summary rendering so incident/homepage views remain 
 - [2026-02-25 22:31:50 +07:00] Added/updated tests in `test/ingestion.test.ts` and `test/app.test.ts` for GHSA parsing behavior, summary normalization routine, new admin endpoint auth/DB/success paths, homepage sample bounding, and incident SEO description bounds.
 - [2026-02-25 22:31:50 +07:00] Ran verification commands: `npm run typecheck` and `npm run test` (both pass).
 - [2026-02-25 22:31:50 +07:00] Created PR self-review file: `.tasks/ghsa-advisory-parsing-normalization-hotfix-review.md`.
+- [2026-02-25 22:34:01 +07:00] Committed implementation as `fix(ghsa-advisory-parsing-normalization-hotfix): normalize advisory summaries and cap render text`.
+- [2026-02-25 22:34:01 +07:00] Pushed branch to origin and prepared PR link.
 
 ## Verification Checklist
 - [x] All acceptance criteria met
