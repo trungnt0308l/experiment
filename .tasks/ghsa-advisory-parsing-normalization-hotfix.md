@@ -1,11 +1,11 @@
 # Task: ghsa-advisory-parsing-normalization-hotfix
 
 ## Meta
-- **Status**: REVIEW
+- **Status**: DONE
 - **Branch**: fix/ghsa-advisory-parsing-normalization-hotfix
 - **PR**: https://github.com/trungnt0308l/experiment/pull/new/fix/ghsa-advisory-parsing-normalization-hotfix
 - **Created**: 2026-02-25 22:22:35 +07:00
-- **Last Updated**: 2026-02-25 22:34:01 +07:00
+- **Last Updated**: 2026-02-25 23:39:13 +07:00
 
 ## Objective
 Fix GHSA ingestion and long-summary rendering so incident/homepage views remain concise and stable.
@@ -29,13 +29,15 @@ Fix GHSA ingestion and long-summary rendering so incident/homepage views remain 
 - [2026-02-25 22:31:50 +07:00] Created PR self-review file: `.tasks/ghsa-advisory-parsing-normalization-hotfix-review.md`.
 - [2026-02-25 22:34:01 +07:00] Committed implementation as `fix(ghsa-advisory-parsing-normalization-hotfix): normalize advisory summaries and cap render text`.
 - [2026-02-25 22:34:01 +07:00] Pushed branch to origin and prepared PR link.
+- [2026-02-25 23:39:13 +07:00] Deployed to production via `npm run deploy:prod` (Worker version `cca2ae4f-38c8-4e61-9bc6-9011ae3d1eea`).
+- [2026-02-25 23:39:13 +07:00] Ran public smoke checks on `https://aisecurityradar.com` and the affected GHSA incident URL; summary/meta are bounded and no markdown code fences are rendered.
 
 ## Verification Checklist
 - [x] All acceptance criteria met
 - [x] Tests pass
 - [x] No lint/type errors
-- [ ] Manual verification documented and executed
+- [x] Manual verification documented and executed
 - [x] PRD updated if scope changed
 
 ## Issues / Blockers
-- Manual production verification pending deployment (run normalization once and verify homepage + affected incident URL).
+(none)
