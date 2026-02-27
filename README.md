@@ -10,6 +10,7 @@ Current production status:
 - SEO endpoints: `/sitemap.xml` and `/robots.txt`
 - Admin exports: `/api/admin/signups` and `/admin/signups` (token-protected)
 - Ingestion trigger: `POST /api/admin/ingestion/run` (token-protected)
+- Summary cleanup trigger: `POST /api/admin/ingestion/normalize-summaries` (token-protected)
 - Draft feed for social posts: `GET /api/admin/drafts` (token-protected)
 - Ingestion feed (date-sorted): `GET /api/admin/ingestions` (token-protected)
 - Draft review actions: `POST /api/admin/drafts/:id/approve`, `POST /api/admin/drafts/:id/publish`
@@ -109,7 +110,8 @@ Browser-based operation (no curl):
 4. Review drafts sorted by incident date.
 5. Click **Approve** then **Publish** per draft.
 6. Published drafts automatically appear on `/incidents` and `/incidents/:slug`, sorted newest first.
-7. Use **Reset Ingestion DB** to clear ingested events and drafts before rerunning ingestion.
+7. Use **Normalize Long Summaries** to repair oversized legacy advisory summaries.
+8. Use **Reset Ingestion DB** to clear ingested events and drafts before rerunning ingestion.
 
 Feed overrides:
 - Set `RSS_FEEDS` as a comma-separated list of RSS/Atom URLs in env vars.
@@ -128,6 +130,7 @@ Feed overrides:
 - Set `HN_MAX_ITEMS` (default `8`) to cap HN subrequests and avoid Worker resource-limit errors.
 - Set `ENABLE_HN_SOURCE=false` to disable HN ingestion temporarily.
 - Auto-publish rule: incidents from trusted sources in `AUTO_PUBLISH_TRUSTED_SOURCES` (default `nvd`) and meeting `AUTO_PUBLISH_MIN_SEVERITY` (default `high`) are published immediately.
+- GHSA ingestion now stores concise summary-first text (with optional short excerpt) and caps persisted summaries to prevent oversized markdown blobs in incident pages.
 
 Behavior:
 - On each new waitlist signup (`joined` only), app sends notification attempts to Email (Resend) and Telegram.

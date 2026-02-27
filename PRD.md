@@ -286,3 +286,5 @@ Teams need a single low-cost service that detects relevant AI security incidents
 ## Changelog
 - [2026-02-14] Initial PRD created for implementation kickoff with phased goals, verification steps, and exit criteria.
 - [2026-02-14] Added implementation default: GPT-5 mini optional layer for semantic dedupe and published-incident enrichment, with budget caps and fallback to deterministic pipeline when LLM is unavailable.
+- [2026-02-25] ghsa-advisory-parsing-normalization-hotfix: Added summary normalization safeguards (source ingestion + render caps), GHSA summary-first parsing, and admin long-summary cleanup endpoint for legacy incident content.
+- [2026-02-25] reapply-homepage-friction: Removed homepage risk checkbox gate again and restored email-first waitlist flow with optional interests.

@@ -36,6 +36,23 @@ function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+function trimToSentence(value: string, max: number): string {
+  const normalized = value.trim();
+  if (normalized.length <= max) {
+    return normalized;
+  }
+  const clipped = normalized.slice(0, max).trim();
+  const punctuation = Math.max(clipped.lastIndexOf('.'), clipped.lastIndexOf('!'), clipped.lastIndexOf('?'));
+  if (punctuation >= Math.floor(max * 0.45)) {
+    return clipped.slice(0, punctuation + 1).trim();
+  }
+  const lastSpace = clipped.lastIndexOf(' ');
+  if (lastSpace >= Math.floor(max * 0.6)) {
+    return `${clipped.slice(0, lastSpace).trim()}...`;
+  }
+  return `${clipped}...`;
+}
+
 function stripDangerousBlocks(value: string): string {
   return value
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
@@ -299,7 +316,7 @@ export function renderLandingPage(
     h1 { margin: 0 0 12px; font-size: 37px; line-height: 1.06; }
     .risk { color: var(--danger); font-weight: 700; }
     p { margin: 0 0 12px; font-size: 18px; }
-    .sub { color: var(--muted); font-size: 16px; }
+    .sub { color: var(--muted); font-size: 16px; overflow-wrap: anywhere; word-break: break-word; }
     .proof-row {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -358,16 +375,6 @@ export function renderLandingPage(
       font-family: inherit;
       background: #fff;
     }
-    .option-list {
-      border: 1px solid #9e978c;
-      border-radius: 3px;
-      padding: 10px;
-      margin-bottom: 12px;
-      background: #fff;
-    }
-    .option-item { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 14px; }
-    .option-item:last-child { margin-bottom: 0; }
-    input[type="checkbox"] { width: auto; margin: 0; flex: 0 0 auto; }
     .actions { display: grid; gap: 8px; }
     button {
       border: 0;
@@ -389,7 +396,6 @@ export function renderLandingPage(
     .links { margin-top: 6px; display: flex; gap: 10px; }
     .links a { color: var(--accent); font-size: 13px; }
     .small { font-size: 13px; color: #4d483f; margin-top: 8px; }
-    .field-error { font-size: 13px; color: var(--danger); margin: -6px 0 10px; }
     .ok { color: var(--good); }
     .err { color: var(--danger); }
     .site-footer {
@@ -448,21 +454,10 @@ export function renderLandingPage(
         <label for="email">Work Email</label>
         <input id="email" name="email" type="email" required />
 
-        <label>Which risks should we monitor for you? (Select all that apply)</label>
-        <div class="option-list" role="group" aria-label="Risk interests">
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Prompt injection attacks" /> Prompt injection attacks</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Data leakage in AI tools" /> Data leakage in AI tools</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Shadow AI usage" /> Shadow AI usage</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Model supply chain risk" /> Model supply chain risk</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Compliance and regulatory exposure" /> Compliance and regulatory exposure</label>
-          <label class="option-item"><input type="checkbox" name="riskOption" value="Agent abuse and privilege misuse" /> Agent abuse and privilege misuse</label>
-        </div>
-        <p id="risk-error" class="field-error" style="display:none;" aria-live="polite">Please select at least one risk area.</p>
         <div class="actions">
           <button type="submit">Get Notified</button>
         </div>
 
-        <input type="hidden" id="interests" name="interests" value="" />
         <input type="hidden" name="source" value="landing-page" />
         <input type="hidden" name="utmSource" id="utmSource" value="" />
         <input type="hidden" name="utmMedium" id="utmMedium" value="" />
@@ -484,7 +479,6 @@ export function renderLandingPage(
   <script>
     const form = document.getElementById('waitlist-form');
     const status = document.getElementById('status');
-    const riskError = document.getElementById('risk-error');
     const params = new URLSearchParams(window.location.search);
     const emailInput = document.getElementById('email');
 
@@ -507,30 +501,6 @@ export function renderLandingPage(
     setField('referrer', document.referrer || 'direct');
     setField('landingPath', window.location.pathname + window.location.search);
 
-    const getSelectedRisks = () => Array.from(form.querySelectorAll('input[name="riskOption"]:checked'))
-      .map((el) => el.value)
-      .join(', ');
-    const setRiskError = (message) => {
-      if (!riskError) {
-        return;
-      }
-      if (!message) {
-        riskError.textContent = '';
-        riskError.style.display = 'none';
-        return;
-      }
-      riskError.textContent = message;
-      riskError.style.display = 'block';
-    };
-
-    form.querySelectorAll('input[name="riskOption"]').forEach((el) => {
-      el.addEventListener('change', () => {
-        track('risk_selection_change', { selected_count: getSelectedRisks().split(',').filter(Boolean).length });
-        if (getSelectedRisks()) {
-          setRiskError('');
-        }
-      });
-    });
     const bindCtaTracking = (id) => {
       const node = document.getElementById(id);
       if (!node) return;
@@ -545,7 +515,6 @@ export function renderLandingPage(
       event.preventDefault();
       status.textContent = 'Submitting...';
       status.className = 'small';
-      setRiskError('');
 
       if (!emailInput.checkValidity()) {
         emailInput.reportValidity();
@@ -555,17 +524,7 @@ export function renderLandingPage(
         return;
       }
 
-      const selectedRisks = getSelectedRisks();
-      if (!selectedRisks) {
-        setRiskError('Please select at least one risk area.');
-        status.textContent = '';
-        status.className = 'small';
-        track('waitlist_submit_error', { reason: 'missing_risk' });
-        return;
-      }
-
       const formData = new FormData(form);
-      formData.set('interests', selectedRisks);
 
       const response = await fetch('/api/waitlist', {
         method: 'POST',
@@ -590,7 +549,6 @@ export function renderLandingPage(
           utm_source: formData.get('utmSource') || '',
           utm_medium: formData.get('utmMedium') || '',
           utm_campaign: formData.get('utmCampaign') || '',
-          risk_count: selectedRisks.split(',').filter(Boolean).length,
         });
         form.reset();
       }
@@ -700,9 +658,13 @@ export function renderIncidentDetailPage(
     .slice(0, 3)
     .map((item) => `<li><a href="/incidents/${encodeURIComponent(item.slug)}">${toSafeText(item.title)}</a></li>`)
     .join('');
+  const seoDescription = trimToSentence(
+    normalizeWhitespace(stripHtmlTags(incident.summary)) || 'AI security incident summary and response guidance.',
+    260
+  );
   const seoSnippet = renderSeoMeta({
     title: `${incident.title} | AI Security Radar`,
-    description: incident.summary,
+    description: seoDescription,
     canonicalPath: `/incidents/${incident.slug}`,
     siteUrl,
     type: 'article',
@@ -733,6 +695,7 @@ export function renderIncidentDetailPage(
     article { border:1px solid #ddd6c8;background:#fffdf9;padding:18px; }
     h1 { margin-top: 0; }
     .meta { color:#5f584f; font-size:14px; margin-bottom: 10px; }
+    p, li, .meta { overflow-wrap: anywhere; word-break: break-word; }
     a { color:#135d7a; }
     .incident-cta {
       margin-top: 16px;
@@ -885,7 +848,7 @@ export function renderPrivacyPage(siteUrl?: string): string {
     <p>We collect contact and profile information that you submit in the waitlist form, along with attribution metadata (for example UTM parameters) for demand analysis.</p>
     <h2>What We Collect</h2>
     <ul>
-      <li>Work email, company, role, and selected risk interests.</li>
+      <li>Work email, company, role, and optional interests you provide.</li>
       <li>Traffic attribution metadata such as source, campaign, and referrer.</li>
     </ul>
     <h2>How We Use Data</h2>
@@ -1039,6 +1002,7 @@ export function renderAdminOpsPage(siteUrl?: string): string {
       <div>
         <button class="btn" id="run-btn" type="button">Run Ingestion Now</button>
         <button class="btn secondary" id="load-ingestions-btn" type="button">Load Ingestions</button>
+        <button class="btn secondary" id="normalize-summaries-btn" type="button">Normalize Long Summaries</button>
         <button class="btn secondary" id="clear-incidents-btn" type="button">Clear Incidents</button>
         <button class="btn warn" id="reset-ingestion-btn" type="button">Reset Ingestion DB</button>
       </div>
@@ -1059,6 +1023,7 @@ export function renderAdminOpsPage(siteUrl?: string): string {
     const limitEl = document.getElementById('limit');
     const runBtn = document.getElementById('run-btn');
     const loadIngestionsBtn = document.getElementById('load-ingestions-btn');
+    const normalizeSummariesBtn = document.getElementById('normalize-summaries-btn');
     const clearIncidentsBtn = document.getElementById('clear-incidents-btn');
     const resetIngestionBtn = document.getElementById('reset-ingestion-btn');
 
@@ -1218,6 +1183,29 @@ export function renderAdminOpsPage(siteUrl?: string): string {
       } catch (error) {
         ingestionsEl.innerHTML = '';
         setStatus(error.message || 'Request failed', 'err');
+      }
+    });
+
+    normalizeSummariesBtn.addEventListener('click', async () => {
+      try {
+        const confirmed = window.confirm('Normalize long summaries in ingested events and published draft summaries?');
+        if (!confirmed) {
+          return;
+        }
+        setStatus('Normalizing long summaries...', '');
+        const body = await api('/api/admin/ingestion/normalize-summaries', { method: 'POST' });
+        await loadIngestions();
+        const result = body.result || {};
+        setStatus(
+          'Normalization complete. scanned_events=' + (result.scannedEvents || 0) +
+          ', updated_events=' + (result.updatedEvents || 0) +
+          ', scanned_draft_summaries=' + (result.scannedDraftSummaries || 0) +
+          ', updated_draft_summaries=' + (result.updatedDraftSummaries || 0) +
+          ', unchanged=' + (result.unchanged || 0) + '.',
+          'ok'
+        );
+      } catch (error) {
+        setStatus(error.message || 'Action failed', 'err');
       }
     });
 

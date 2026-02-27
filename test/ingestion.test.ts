@@ -1,13 +1,77 @@
 import { describe, expect, test } from 'vitest';
 import {
+  compactSummaryText,
   isEventRecent,
   isLikelyAiSecurityIncident,
+  normalizeLongSummaries,
   parseRssOrAtom,
   resolveRuntimeCaps,
   runIngestionPipeline,
   shouldAutoPublish,
   scoreIncidentRelevance,
+  summarizeGitHubAdvisory,
 } from '../src/ingestion';
+
+function createNormalizationDbFixture() {
+  const longEventSummary = `## Advisory\n\`\`\`js\nconsole.log("poc");\n\`\`\`\nAttackers can trigger AI model deserialization bypass and execute unsafe opcodes. ${'detail '.repeat(140)}`;
+  const longDraftSummary = `### Draft rewrite\nAttackers can bypass trust checks in AI processing workflows. ${'context '.repeat(130)}\n\`\`\`python\nprint("debug")\n\`\`\``;
+  const events = [
+    { id: 1, summary: longEventSummary },
+    { id: 2, summary: 'Short summary stays unchanged.' },
+  ];
+  const drafts = [
+    { id: 10, enriched_summary: longDraftSummary },
+    { id: 11, enriched_summary: 'Already short summary.' },
+  ];
+
+  const db = {
+    prepare(sql: string) {
+      const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
+      return {
+        bind(...params: unknown[]) {
+          return {
+            all: async () => {
+              if (compactSql.includes('from ingested_events') && compactSql.includes('length(summary) >')) {
+                const threshold = Number(params[0] ?? 0);
+                return { results: events.filter((row) => (row.summary ?? '').length > threshold) };
+              }
+              if (compactSql.includes('from draft_posts') && compactSql.includes('length(enriched_summary) >')) {
+                const threshold = Number(params[0] ?? 0);
+                return { results: drafts.filter((row) => (row.enriched_summary ?? '').length > threshold) };
+              }
+              throw new Error(`Unexpected all SQL: ${sql}`);
+            },
+            run: async () => {
+              if (compactSql.startsWith('update ingested_events')) {
+                const summary = String(params[0] ?? '');
+                const id = Number(params[1]);
+                const row = events.find((item) => item.id === id);
+                if (!row) {
+                  return { meta: { changes: 0 } };
+                }
+                row.summary = summary;
+                return { meta: { changes: 1 } };
+              }
+              if (compactSql.startsWith('update draft_posts')) {
+                const summary = String(params[0] ?? '');
+                const id = Number(params[1]);
+                const row = drafts.find((item) => item.id === id);
+                if (!row) {
+                  return { meta: { changes: 0 } };
+                }
+                row.enriched_summary = summary;
+                return { meta: { changes: 1 } };
+              }
+              throw new Error(`Unexpected run SQL: ${sql}`);
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+
+  return { db, events, drafts };
+}
 
 describe('ingestion helpers', () => {
   test('scores AI security text as relevant', () => {
@@ -72,10 +136,57 @@ describe('ingestion helpers', () => {
     expect(items[0]?.url).toBe('https://example.com/incidents/42');
   });
 
+  test('compacts markdown-heavy summaries into bounded plain text', () => {
+    const raw = `## Incident detail\n\`\`\`bash\ncurl https://example.com\n\`\`\`\n- Attackers can exfiltrate model secrets through plugin abuse. ${'note '.repeat(120)}`;
+    const compact = compactSummaryText(raw, 180);
+    expect(compact).not.toContain('```');
+    expect(compact).not.toContain('##');
+    expect(compact).toContain('Attackers can exfiltrate model secrets');
+    expect(compact.length).toBeLessThanOrEqual(183);
+  });
+
+  test('builds GHSA summaries as headline-first with one concise excerpt sentence', () => {
+    const summary = 'Fickling obj opcode call invisibility bypass';
+    const description = `## Impact\nAttackers can bypass invisibility checks in model pickle inspection.\n\n\`\`\`python\n# poc\n\`\`\`\nAdditional deep technical details follow in the advisory body.`;
+    const parsed = summarizeGitHubAdvisory(summary, description, 260);
+
+    expect(parsed.startsWith(summary)).toBe(true);
+    expect(parsed).toContain('Attackers can bypass invisibility checks in model pickle inspection.');
+    expect(parsed).not.toContain('```');
+    expect(parsed.length).toBeLessThanOrEqual(263);
+  });
+
+  test('avoids duplicate GHSA excerpt when description repeats summary headline', () => {
+    const summary = 'Prompt injection bypass in AI plugin authorization';
+    const description = 'Prompt injection bypass in AI plugin authorization. Additional context appears after the headline.';
+    const parsed = summarizeGitHubAdvisory(summary, description, 260);
+    const duplicateMatches = parsed.match(/Prompt injection bypass in AI plugin authorization/g) ?? [];
+    expect(duplicateMatches.length).toBe(1);
+  });
+
   test('returns DB error when pipeline runs without DB', async () => {
     const result = await runIngestionPipeline({});
     expect(result.errors).toContain('DB not configured');
     expect(result.inserted).toBe(0);
+  });
+
+  test('normalizes legacy long summaries in events and draft enrichments', async () => {
+    const fixture = createNormalizationDbFixture();
+    const result = await normalizeLongSummaries(fixture.db, { thresholdChars: 220, maxChars: 240 });
+
+    expect(result).toEqual({
+      scannedEvents: 1,
+      updatedEvents: 1,
+      scannedDraftSummaries: 1,
+      updatedDraftSummaries: 1,
+      unchanged: 0,
+      thresholdChars: 220,
+      maxChars: 240,
+    });
+    expect((fixture.events[0]?.summary ?? '').length).toBeLessThanOrEqual(243);
+    expect((fixture.events[0]?.summary ?? '')).not.toContain('```');
+    expect((fixture.drafts[0]?.enriched_summary ?? '').length).toBeLessThanOrEqual(243);
+    expect((fixture.drafts[0]?.enriched_summary ?? '')).not.toContain('```');
   });
 
   test('marks stale events as not recent', () => {

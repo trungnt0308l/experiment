@@ -12,6 +12,119 @@ function makeEnv() {
   return { APP_NAME: 'Test App' };
 }
 
+function makeSummaryNormalizationDb() {
+  const events = [
+    { id: 1, summary: `## Advisory\n\`\`\`js\nconsole.log("poc")\n\`\`\`\nLong advisory summary ${'token '.repeat(150)}` },
+    { id: 2, summary: 'Short event summary.' },
+  ];
+  const drafts = [
+    { id: 10, enriched_summary: `### Enriched\nLong enriched text ${'detail '.repeat(140)}\n\`\`\`python\nprint("x")\n\`\`\`` },
+    { id: 11, enriched_summary: 'Short draft summary.' },
+  ];
+
+  return {
+    prepare(sql: string) {
+      const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
+      return {
+        bind(...params: unknown[]) {
+          return {
+            all: async () => {
+              if (compactSql.includes('from ingested_events') && compactSql.includes('length(summary) >')) {
+                const threshold = Number(params[0] ?? 0);
+                return { results: events.filter((row) => (row.summary ?? '').length > threshold) };
+              }
+              if (compactSql.includes('from draft_posts') && compactSql.includes('length(enriched_summary) >')) {
+                const threshold = Number(params[0] ?? 0);
+                return { results: drafts.filter((row) => (row.enriched_summary ?? '').length > threshold) };
+              }
+              throw new Error(`Unexpected all SQL: ${sql}`);
+            },
+            run: async () => {
+              if (compactSql.startsWith('update ingested_events')) {
+                const summary = String(params[0] ?? '');
+                const id = Number(params[1]);
+                const row = events.find((item) => item.id === id);
+                if (!row) {
+                  return { meta: { changes: 0 } };
+                }
+                row.summary = summary;
+                return { meta: { changes: 1 } };
+              }
+              if (compactSql.startsWith('update draft_posts')) {
+                const summary = String(params[0] ?? '');
+                const id = Number(params[1]);
+                const row = drafts.find((item) => item.id === id);
+                if (!row) {
+                  return { meta: { changes: 0 } };
+                }
+                row.enriched_summary = summary;
+                return { meta: { changes: 1 } };
+              }
+              throw new Error(`Unexpected run SQL: ${sql}`);
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+}
+
+function makeLandingSampleDb(row: {
+  headline?: string | null;
+  title: string;
+  summary: string | null;
+  enriched_summary: string | null;
+  url: string;
+  source: string;
+  severity: string | null;
+}) {
+  return {
+    prepare(sql: string) {
+      const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
+      if (!compactSql.includes('from draft_posts d') || !compactSql.includes('limit 1')) {
+        throw new Error(`Unexpected SQL: ${sql}`);
+      }
+      return {
+        first: async () => row,
+      };
+    },
+  } as unknown as D1Database;
+}
+
+function makeIncidentDetailDb(summary: string) {
+  return {
+    prepare(sql: string) {
+      const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
+      if (!compactSql.includes('from draft_posts d') || !compactSql.includes('join ingested_events e')) {
+        throw new Error(`Unexpected SQL: ${sql}`);
+      }
+      return {
+        all: async () => ({
+          results: [
+            {
+              draft_id: 1,
+              slug: 'sample-incident',
+              headline: 'Sample Incident Headline',
+              published_at: '2026-02-25T00:00:00.000Z',
+              created_at: '2026-02-25T00:00:00.000Z',
+              title: 'Sample Incident Headline',
+              summary,
+              url: 'https://example.com/advisory',
+              source: 'ghsa',
+              severity: 'high',
+              confidence: 0.91,
+              event_published_at: '2026-02-24T00:00:00.000Z',
+              enriched_summary: null,
+              enriched_impact: null,
+              enriched_remedy_json: null,
+            },
+          ],
+        }),
+      };
+    },
+  } as unknown as D1Database;
+}
+
 describe('waitlist endpoint', () => {
   test('renders homepage with attribution fields', async () => {
     const app = createApp();
@@ -21,7 +134,8 @@ describe('waitlist endpoint', () => {
     expect(html).toContain('name="utmSource"');
     expect(html).toContain('name="utmMedium"');
     expect(html).toContain('name="utmCampaign"');
-    expect(html).toContain('name="riskOption"');
+    expect(html).not.toContain('name="riskOption"');
+    expect(html).not.toContain('Which risks should we monitor for you?');
     expect(html).toContain('href="/privacy"');
     expect(html).toContain('No published incidents yet.');
     expect(html).toContain('A verified sample alert will appear here after the first published incident.');
@@ -35,6 +149,50 @@ describe('waitlist endpoint', () => {
     expect(res.headers.get('x-frame-options')).toBe('DENY');
     expect(res.headers.get('content-security-policy')).toContain("default-src 'self'");
     expect(res.headers.get('content-security-policy')).toContain("img-src 'self' data: https:");
+  });
+
+  test('renders bounded, markdown-cleaned sample risk text on homepage', async () => {
+    const app = createApp();
+    const longMarkdownSummary = `## Impact\n\`\`\`bash\ncat payload\n\`\`\`\nAttackers can bypass model trust boundaries and execute unsafe operations. ${'detail '.repeat(180)}`;
+    const env = {
+      ...makeEnv(),
+      DB: makeLandingSampleDb({
+        headline: 'GHSA sample',
+        title: 'GHSA sample',
+        summary: longMarkdownSummary,
+        enriched_summary: null,
+        url: 'https://example.com/advisory',
+        source: 'ghsa',
+        severity: 'high',
+      }),
+    };
+
+    const res = await app.request('http://localhost/', undefined, env);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('Risk:');
+    expect(html).not.toContain('```');
+    expect(html).not.toContain('## Impact');
+    const riskSnippet = html.match(/Risk:[^<]+/)?.[0] ?? '';
+    expect(riskSnippet.length).toBeLessThanOrEqual(300);
+  });
+
+  test('bounds and cleans incident SEO description from long legacy summaries', async () => {
+    const app = createApp();
+    const longSummary = `## Advisory\n\`\`\`python\nprint("poc")\n\`\`\`\nAttackers can abuse model deserialization and bypass policy checks. ${'note '.repeat(220)}`;
+    const env = {
+      ...makeEnv(),
+      DB: makeIncidentDetailDb(longSummary),
+    };
+
+    const res = await app.request('http://localhost/incidents/sample-incident', undefined, env);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    const metaDescription = html.match(/<meta name="description" content="([^"]+)"/)?.[1] ?? '';
+    expect(metaDescription.length).toBeGreaterThan(10);
+    expect(metaDescription.length).toBeLessThanOrEqual(300);
+    expect(metaDescription).not.toContain('```');
+    expect(metaDescription).not.toContain('##');
   });
 
   test('renders legal pages', async () => {
@@ -55,6 +213,7 @@ describe('waitlist endpoint', () => {
     const html = await res.text();
     expect(html).toContain('Admin Operations');
     expect(html).toContain('Run Ingestion Now');
+    expect(html).toContain('Normalize Long Summaries');
     expect(html).not.toContain('Load Drafts');
   });
 
@@ -150,6 +309,66 @@ describe('waitlist endpoint', () => {
     const body = (await res.json()) as { ok: boolean; error: string };
     expect(body.ok).toBe(false);
     expect(typeof body.error).toBe('string');
+  });
+
+  test('rejects unauthorized summary normalization endpoint access', async () => {
+    const app = createApp();
+    const env = { APP_NAME: 'Test App', ADMIN_API_TOKEN: 'top-secret-token' };
+    const res = await app.request('http://localhost/api/admin/ingestion/normalize-summaries', { method: 'POST' }, env);
+    expect(res.status).toBe(401);
+  });
+
+  test('returns DB not configured on summary normalization endpoint', async () => {
+    const app = createApp();
+    const env = { APP_NAME: 'Test App', ADMIN_API_TOKEN: 'top-secret-token' };
+    const res = await app.request(
+      'http://localhost/api/admin/ingestion/normalize-summaries',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer top-secret-token' },
+      },
+      env
+    );
+    expect(res.status).toBe(503);
+  });
+
+  test('normalizes long summaries via admin endpoint and returns counts', async () => {
+    const app = createApp();
+    const env = {
+      APP_NAME: 'Test App',
+      ADMIN_API_TOKEN: 'top-secret-token',
+      DB: makeSummaryNormalizationDb(),
+    };
+
+    const res = await app.request(
+      'http://localhost/api/admin/ingestion/normalize-summaries',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer top-secret-token' },
+      },
+      env
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ok: boolean;
+      result: {
+        scannedEvents: number;
+        updatedEvents: number;
+        scannedDraftSummaries: number;
+        updatedDraftSummaries: number;
+        unchanged: number;
+        thresholdChars: number;
+        maxChars: number;
+      };
+    };
+    expect(body.ok).toBe(true);
+    expect(body.result.scannedEvents).toBe(1);
+    expect(body.result.updatedEvents).toBe(1);
+    expect(body.result.scannedDraftSummaries).toBe(1);
+    expect(body.result.updatedDraftSummaries).toBe(1);
+    expect(body.result.thresholdChars).toBeGreaterThan(200);
+    expect(body.result.maxChars).toBeGreaterThan(100);
   });
 
   test('returns DB not configured on drafts endpoint', async () => {
@@ -279,6 +498,24 @@ describe('waitlist endpoint', () => {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: form.toString(),
+    }, makeEnv());
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as WaitlistApiResponse;
+    expect(body.ok).toBe(true);
+    expect(body.status).toBe('joined');
+  });
+
+  test('accepts valid signup without interests', async () => {
+    const app = createApp();
+
+    const res = await app.request('http://localhost/api/waitlist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'email-only@example.com',
+        source: 'landing-page',
+      }),
     }, makeEnv());
 
     expect(res.status).toBe(201);
