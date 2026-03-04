@@ -8,6 +8,7 @@ export type SourceEvent = {
   url: string;
   summary: string;
   publishedAt: string | null;
+  sourceSeverity?: 'low' | 'medium' | 'high';
 };
 
 type StoredEvent = SourceEvent & {
@@ -37,24 +38,67 @@ type DraftPost = {
   slug: string | null;
 };
 
-export type IngestionRunResult = {
+export type IngestionMode = 'cron' | 'manual';
+
+export type IngestionRunOptions = {
+  mode?: IngestionMode;
+  runId?: string;
+};
+
+export type IngestionStopReason = 'completed' | 'runtime_budget' | 'event_budget' | 'db_budget';
+
+export type IngestionSourceStats = {
   fetched: number;
-  relevant: number;
+  eligible: number;
+  processed: number;
   inserted: number;
   deduped: number;
+  queued: number;
+  errors: number;
+};
+
+export type IngestionRunResult = {
+  mode: IngestionMode;
+  lockSkipped: boolean;
+  stopReason: IngestionStopReason;
+  fetched: number;
+  relevant: number;
+  processed: number;
+  inserted: number;
+  deduped: number;
+  queuedForNextRun: number;
   draftsCreated: number;
   llmDedupeCalls: number;
   llmEnrichCalls: number;
+  sourceStats: Record<SourceEvent['source'], IngestionSourceStats>;
   errors: string[];
 };
 
 export type RuntimeCaps = {
+  maxProcessEvents: number;
+  maxDbWrites: number;
+  maxRuntimeMs: number;
+  fetchTimeoutMs: number;
   hnMaxItems: number;
+  cisaMaxItemsPerRun: number;
+  euvdMaxItemsPerRun: number;
+  ghsaMaxItemsPerRun: number;
+  rssMaxItemsPerFeed: number;
+  nvdResultsPerKeyword: number;
   llmDedupeMaxCalls: number;
   llmEnrichMaxCalls: number;
 };
 
 type FetchLike = typeof fetch;
+
+type IngestionStateRow = {
+  key: string;
+  value: string;
+  updated_at: string;
+};
+
+const SOURCE_ORDER: SourceEvent['source'][] = ['nvd', 'cisa_kev', 'euvd', 'ghsa', 'rss', 'hn'];
+const DEFAULT_AUTO_PUBLISH_TRUSTED_SOURCES = SOURCE_ORDER.join(',');
 
 const AI_TERMS = [
   'ai',
@@ -135,6 +179,8 @@ const GHSA_TITLE_MAX_CHARS = 220;
 const GHSA_SUMMARY_MAX_CHARS = 380;
 const GHSA_EXCERPT_MAX_CHARS = 170;
 const NORMALIZE_SUMMARY_THRESHOLD_CHARS = 700;
+const CRON_LOCK_KEY = 'lock:cron';
+const CRON_LOCK_TTL_MS = 55 * 60 * 1000;
 
 function clampInt(value: string | undefined, fallback: number, min: number, max: number): number {
   if (!value) {
@@ -147,10 +193,48 @@ function clampInt(value: string | undefined, fallback: number, min: number, max:
   return Math.min(max, Math.max(min, Math.floor(parsed)));
 }
 
-export function resolveRuntimeCaps(env: EnvBindings): RuntimeCaps {
+function clampDurationMs(value: string | undefined, fallback: number, min: number, max: number): number {
+  return clampInt(value, fallback, min, max);
+}
+
+function parseBool(value: string | undefined, fallback: boolean): boolean {
+  if (!value) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true') {
+    return true;
+  }
+  if (normalized === 'false') {
+    return false;
+  }
+  return fallback;
+}
+
+export function resolveRuntimeCaps(env: EnvBindings, mode: IngestionMode = 'manual'): RuntimeCaps {
+  const isCron = mode === 'cron';
+  const cronDisableLlmDedupe = parseBool(env.INGEST_CRON_DISABLE_LLM_DEDUPE, true);
+  const llmDedupeMaxCalls = clampInt(env.LLM_DEDUPE_MAX_CALLS, 6, 0, 12);
   return {
+    maxProcessEvents: isCron
+      ? clampInt(env.INGEST_CRON_MAX_PROCESS_EVENTS, 60, 1, 300)
+      : clampInt(undefined, 200, 50, 500),
+    maxDbWrites: isCron
+      ? clampInt(env.INGEST_CRON_MAX_DB_WRITES, 180, 1, 900)
+      : clampInt(undefined, 600, 100, 1500),
+    maxRuntimeMs: isCron
+      ? clampDurationMs(env.INGEST_CRON_MAX_RUNTIME_MS, 20_000, 1, 55_000)
+      : 45_000,
+    fetchTimeoutMs: isCron
+      ? clampDurationMs(env.INGEST_CRON_FETCH_TIMEOUT_MS, 8_000, 1, 20_000)
+      : 12_000,
     hnMaxItems: clampInt(env.HN_MAX_ITEMS, 8, 0, 20),
-    llmDedupeMaxCalls: clampInt(env.LLM_DEDUPE_MAX_CALLS, 6, 0, 12),
+    cisaMaxItemsPerRun: clampInt(env.INGEST_CISA_MAX_ITEMS_PER_RUN, 80, 5, 250),
+    euvdMaxItemsPerRun: clampInt(env.INGEST_EUVD_MAX_ITEMS_PER_RUN, 80, 5, 250),
+    ghsaMaxItemsPerRun: clampInt(env.INGEST_GHSA_MAX_ITEMS_PER_RUN, 40, 5, 120),
+    rssMaxItemsPerFeed: clampInt(env.INGEST_RSS_MAX_ITEMS_PER_FEED, 20, 2, 80),
+    nvdResultsPerKeyword: clampInt(env.INGEST_NVD_RESULTS_PER_KEYWORD, 6, 2, 20),
+    llmDedupeMaxCalls: isCron && cronDisableLlmDedupe ? 0 : llmDedupeMaxCalls,
     llmEnrichMaxCalls: clampInt(env.LLM_ENRICH_MAX_CALLS, 2, 0, 3),
   };
 }
@@ -359,6 +443,170 @@ function parseDateSafe(value: string | null): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
+function buildRunId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function emptySourceStats(): IngestionSourceStats {
+  return {
+    fetched: 0,
+    eligible: 0,
+    processed: 0,
+    inserted: 0,
+    deduped: 0,
+    queued: 0,
+    errors: 0,
+  };
+}
+
+function initSourceStats(): Record<SourceEvent['source'], IngestionSourceStats> {
+  return {
+    hn: emptySourceStats(),
+    nvd: emptySourceStats(),
+    rss: emptySourceStats(),
+    ghsa: emptySourceStats(),
+    cisa_kev: emptySourceStats(),
+    euvd: emptySourceStats(),
+  };
+}
+
+function cursorStateKey(source: SourceEvent['source']): string {
+  return `cursor:${source}`;
+}
+
+function sourceMaxItems(source: SourceEvent['source'], caps: RuntimeCaps, rssFeedCount: number): number {
+  if (source === 'hn') {
+    return caps.hnMaxItems;
+  }
+  if (source === 'cisa_kev') {
+    return caps.cisaMaxItemsPerRun;
+  }
+  if (source === 'euvd') {
+    return caps.euvdMaxItemsPerRun;
+  }
+  if (source === 'ghsa') {
+    return caps.ghsaMaxItemsPerRun;
+  }
+  if (source === 'rss') {
+    return Math.max(1, rssFeedCount) * caps.rssMaxItemsPerFeed;
+  }
+  return caps.nvdResultsPerKeyword * 4;
+}
+
+function withFetchTimeout(fetchFn: FetchLike, timeoutMs: number): FetchLike {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetchFn(input, { ...(init ?? {}), signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+}
+
+async function getIngestionState(db: D1Database, key: string): Promise<IngestionStateRow | null> {
+  return db
+    .prepare('SELECT key, value, updated_at FROM ingestion_state WHERE key = ?1 LIMIT 1')
+    .bind(key)
+    .first<IngestionStateRow>();
+}
+
+async function putIngestionState(db: D1Database, key: string, value: string, nowIso: string): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO ingestion_state (key, value, updated_at)
+       VALUES (?1, ?2, ?3)
+       ON CONFLICT(key) DO UPDATE SET
+         value = excluded.value,
+         updated_at = excluded.updated_at`
+    )
+    .bind(key, value, nowIso)
+    .run();
+}
+
+async function deleteIngestionState(db: D1Database, key: string): Promise<void> {
+  await db.prepare('DELETE FROM ingestion_state WHERE key = ?1').bind(key).run();
+}
+
+async function acquireCronLock(db: D1Database, nowIso: string, lockValue: string): Promise<{ acquired: boolean; error?: string }> {
+  const expiryIso = new Date(Date.parse(nowIso) - CRON_LOCK_TTL_MS).toISOString();
+  try {
+    const result = await db
+      .prepare(
+        `INSERT INTO ingestion_state (key, value, updated_at)
+         VALUES (?1, ?2, ?3)
+         ON CONFLICT(key) DO UPDATE SET
+           value = excluded.value,
+           updated_at = excluded.updated_at
+         WHERE datetime(ingestion_state.updated_at) <= datetime(?4)`
+      )
+      .bind(CRON_LOCK_KEY, lockValue, nowIso, expiryIso)
+      .run();
+
+    return { acquired: (result.meta?.changes ?? 0) > 0 };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'cron lock unavailable';
+    return { acquired: true, error: message };
+  }
+}
+
+async function readSourceCursor(db: D1Database, source: SourceEvent['source']): Promise<string | null> {
+  const row = await getIngestionState(db, cursorStateKey(source));
+  if (!row?.value) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(row.value) as { publishedAt?: string };
+    const publishedAt = parsed.publishedAt?.trim();
+    return publishedAt || null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeSourceCursor(
+  db: D1Database,
+  source: SourceEvent['source'],
+  publishedAt: string,
+  nowIso: string,
+  runId: string
+): Promise<void> {
+  const value = JSON.stringify({ publishedAt, runId });
+  await putIngestionState(db, cursorStateKey(source), value, nowIso);
+}
+
+function prepareSourceQueue(
+  source: SourceEvent['source'],
+  events: SourceEvent[],
+  cursorPublishedAt: string | null,
+  maxItems: number
+): { queue: SourceEvent[]; eligibleCount: number; queuedOverflow: number } {
+  const cursorMs = parseDateSafe(cursorPublishedAt);
+  const dated: Array<{ event: SourceEvent; publishedMs: number }> = [];
+  const undated: SourceEvent[] = [];
+
+  for (const event of events) {
+    const publishedMs = parseDateSafe(event.publishedAt);
+    if (publishedMs === null) {
+      undated.push(event);
+      continue;
+    }
+    if (cursorMs !== null && publishedMs <= cursorMs) {
+      continue;
+    }
+    dated.push({ event, publishedMs });
+  }
+
+  // Cursor progression is chronological to avoid starvation during source spikes.
+  dated.sort((a, b) => a.publishedMs - b.publishedMs);
+  const ordered = [...dated.map((entry) => entry.event), ...undated];
+  const sourceCap = Math.max(0, maxItems);
+  const queue = ordered.slice(0, sourceCap);
+  const queuedOverflow = Math.max(0, ordered.length - queue.length);
+  return { queue, eligibleCount: ordered.length, queuedOverflow };
+}
+
 function extractCveId(text: string): string | null {
   const match = text.match(/\bCVE-\d{4}-\d{4,}\b/i);
   if (!match?.[0]) {
@@ -450,15 +698,42 @@ export function isEventRecent(publishedAt: string | null, maxAgeDays: number, no
 
 function inferSeverity(title: string, summary: string): 'low' | 'medium' | 'high' {
   const haystack = `${title} ${summary}`.toLowerCase();
+  let inferred: 'low' | 'medium' | 'high' = 'low';
   for (const term of HIGH_SEVERITY_TERMS) {
     if (haystack.includes(term)) {
-      return 'high';
+      inferred = 'high';
+      break;
     }
   }
-  if (haystack.includes('cve') || haystack.includes('vulnerability') || haystack.includes('exploit')) {
+  if (inferred === 'low' && (haystack.includes('cve') || haystack.includes('vulnerability') || haystack.includes('exploit'))) {
+    inferred = 'medium';
+  }
+  return inferred;
+}
+
+function normalizeSourceSeverity(value: string | undefined): 'low' | 'medium' | 'high' | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'critical' || normalized === 'high') {
+    return 'high';
+  }
+  if (normalized === 'medium' || normalized === 'moderate') {
     return 'medium';
   }
-  return 'low';
+  if (normalized === 'low') {
+    return 'low';
+  }
+  return null;
+}
+
+function resolveSeverity(title: string, summary: string, sourceSeverity: 'low' | 'medium' | 'high' | undefined): 'low' | 'medium' | 'high' {
+  const inferred = inferSeverity(title, summary);
+  if (!sourceSeverity) {
+    return inferred;
+  }
+  return severityRank(sourceSeverity) > severityRank(inferred) ? sourceSeverity : inferred;
 }
 
 function severityRank(value: string): number {
@@ -480,7 +755,7 @@ function minSeverity(env: EnvBindings): 'low' | 'medium' | 'high' {
 }
 
 function trustedSources(env: EnvBindings): Set<string> {
-  const raw = env.AUTO_PUBLISH_TRUSTED_SOURCES ?? 'nvd';
+  const raw = env.AUTO_PUBLISH_TRUSTED_SOURCES ?? DEFAULT_AUTO_PUBLISH_TRUSTED_SOURCES;
   return new Set(
     raw
       .split(',')
@@ -517,7 +792,7 @@ async function toStoredEvent(input: SourceEvent): Promise<StoredEvent | null> {
   return {
     ...input,
     summary: normalizedSummary,
-    severity: inferSeverity(input.title, input.summary),
+    severity: resolveSeverity(input.title, input.summary, input.sourceSeverity),
     confidence: Math.max(0.45, Math.min(0.99, relevance)),
     fingerprint,
   };
@@ -636,7 +911,11 @@ function firstEnglishDescription(descriptions: Array<{ lang?: string; value?: st
   return normalizeWhitespace(english?.value ?? descriptions[0]?.value ?? '');
 }
 
-async function fetchNvdEvents(fetchFn: FetchLike, apiKey?: string): Promise<SourceEvent[]> {
+async function fetchNvdEvents(
+  fetchFn: FetchLike,
+  apiKey: string | undefined,
+  resultsPerKeyword: number
+): Promise<SourceEvent[]> {
   const keywords = ['artificial intelligence', 'llm', 'prompt injection', 'machine learning'];
   const events: SourceEvent[] = [];
   const now = new Date();
@@ -645,7 +924,7 @@ async function fetchNvdEvents(fetchFn: FetchLike, apiKey?: string): Promise<Sour
   const endIso = now.toISOString();
 
   for (const keyword of keywords) {
-    const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(keyword)}&resultsPerPage=10&pubStartDate=${encodeURIComponent(startIso)}&pubEndDate=${encodeURIComponent(endIso)}`;
+    const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(keyword)}&resultsPerPage=${resultsPerKeyword}&pubStartDate=${encodeURIComponent(startIso)}&pubEndDate=${encodeURIComponent(endIso)}`;
     const headers: Record<string, string> = {};
     if (apiKey) {
       headers.apiKey = apiKey;
@@ -688,7 +967,7 @@ async function fetchNvdEvents(fetchFn: FetchLike, apiKey?: string): Promise<Sour
   return events;
 }
 
-async function fetchGitHubAdvisoryEvents(fetchFn: FetchLike, token?: string): Promise<SourceEvent[]> {
+async function fetchGitHubAdvisoryEvents(fetchFn: FetchLike, token: string | undefined, maxItems: number): Promise<SourceEvent[]> {
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
     'User-Agent': 'ai-security-radar',
@@ -697,7 +976,8 @@ async function fetchGitHubAdvisoryEvents(fetchFn: FetchLike, token?: string): Pr
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetchFn('https://api.github.com/advisories?per_page=40&sort=published&direction=desc', { headers });
+  const perPage = Math.min(Math.max(maxItems, 5), 100);
+  const res = await fetchFn(`https://api.github.com/advisories?per_page=${perPage}&sort=published&direction=desc`, { headers });
   if (!res.ok) {
     throw new Error(`GitHub advisories failed: ${res.status}`);
   }
@@ -709,13 +989,16 @@ async function fetchGitHubAdvisoryEvents(fetchFn: FetchLike, token?: string): Pr
     html_url?: string;
     published_at?: string;
     aliases?: string[];
+    severity?: string;
   }>;
 
   return (body ?? [])
+    .slice(0, maxItems)
     .map((item) => {
       const externalId = item.ghsa_id ?? item.aliases?.[0] ?? '';
       const titleBase = compactSummaryText(item.summary ?? '', GHSA_TITLE_MAX_CHARS);
       const summary = summarizeGitHubAdvisory(item.summary ?? '', item.description, GHSA_SUMMARY_MAX_CHARS);
+      const sourceSeverity = normalizeSourceSeverity(item.severity);
       if (!externalId || !titleBase || !item.html_url) {
         return null;
       }
@@ -726,6 +1009,7 @@ async function fetchGitHubAdvisoryEvents(fetchFn: FetchLike, token?: string): Pr
         url: item.html_url,
         summary,
         publishedAt: item.published_at ?? null,
+        sourceSeverity: sourceSeverity ?? undefined,
       };
     })
     .filter(isPresent);
@@ -833,7 +1117,7 @@ export async function normalizeLongSummaries(
   };
 }
 
-async function fetchCisaKevEvents(fetchFn: FetchLike): Promise<SourceEvent[]> {
+async function fetchCisaKevEvents(fetchFn: FetchLike, maxItems: number): Promise<SourceEvent[]> {
   const res = await fetchFn('https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json');
   if (!res.ok) {
     throw new Error(`CISA KEV failed: ${res.status}`);
@@ -851,6 +1135,7 @@ async function fetchCisaKevEvents(fetchFn: FetchLike): Promise<SourceEvent[]> {
   };
 
   return (body.vulnerabilities ?? [])
+    .slice(0, maxItems)
     .map((item) => {
       const cveId = item.cveID;
       if (!cveId) {
@@ -873,7 +1158,7 @@ async function fetchCisaKevEvents(fetchFn: FetchLike): Promise<SourceEvent[]> {
     .filter(isPresent);
 }
 
-async function fetchEuvdEvents(fetchFn: FetchLike): Promise<SourceEvent[]> {
+async function fetchEuvdEvents(fetchFn: FetchLike, maxItems: number): Promise<SourceEvent[]> {
   const res = await fetchFn('https://euvdservices.enisa.europa.eu/api/lastvulnerabilities');
   if (!res.ok) {
     throw new Error(`EUVD failed: ${res.status}`);
@@ -885,6 +1170,7 @@ async function fetchEuvdEvents(fetchFn: FetchLike): Promise<SourceEvent[]> {
   const rows = Array.isArray(body) ? body : (body.items ?? body.vulnerabilities ?? []);
 
   return rows
+    .slice(0, maxItems)
     .map((row) => {
       const cve = String(row.cve ?? row.cveId ?? row.id ?? '').trim();
       const title = String(row.title ?? row.summary ?? cve).trim();
@@ -912,7 +1198,7 @@ function resolveRssFeedUrls(env: EnvBindings): string[] {
   return env.RSS_FEEDS.split(',').map((item) => item.trim()).filter(Boolean);
 }
 
-async function fetchRssEvents(fetchFn: FetchLike, env: EnvBindings): Promise<SourceEvent[]> {
+async function fetchRssEvents(fetchFn: FetchLike, env: EnvBindings, maxItemsPerFeed: number): Promise<SourceEvent[]> {
   const urls = resolveRssFeedUrls(env);
   const events: SourceEvent[] = [];
 
@@ -922,7 +1208,7 @@ async function fetchRssEvents(fetchFn: FetchLike, env: EnvBindings): Promise<Sou
       return [];
     }
     const xml = await res.text();
-    return parseRssOrAtom(xml, feedUrl);
+    return parseRssOrAtom(xml, feedUrl).slice(0, maxItemsPerFeed);
   });
 
   const resolved = await Promise.all(feedPromises);
@@ -1089,144 +1375,322 @@ export async function createDraftFromIngestionEvent(
 
 export async function runIngestionPipeline(
   env: EnvBindings,
-  fetchFn: FetchLike = fetch
+  fetchFn: FetchLike = fetch,
+  options: IngestionRunOptions = {}
 ): Promise<IngestionRunResult> {
+  const mode: IngestionMode = options.mode ?? 'manual';
+  const runId = options.runId ?? buildRunId(mode);
+  const sourceStats = initSourceStats();
+  const baseResult: IngestionRunResult = {
+    mode,
+    lockSkipped: false,
+    stopReason: 'completed',
+    fetched: 0,
+    relevant: 0,
+    processed: 0,
+    inserted: 0,
+    deduped: 0,
+    queuedForNextRun: 0,
+    draftsCreated: 0,
+    llmDedupeCalls: 0,
+    llmEnrichCalls: 0,
+    sourceStats,
+    errors: [],
+  };
+
   if (!env.DB) {
     return {
-      fetched: 0,
-      relevant: 0,
-      inserted: 0,
-      deduped: 0,
-      draftsCreated: 0,
-      llmDedupeCalls: 0,
-      llmEnrichCalls: 0,
+      ...baseResult,
       errors: ['DB not configured'],
     };
   }
 
-  const now = Date.now();
-  const nowIso = new Date(now).toISOString();
+  const startedAt = Date.now();
+  const nowIso = new Date(startedAt).toISOString();
   const maxAgeDays = Math.min(Math.max(Number(env.MAX_EVENT_AGE_DAYS ?? '60'), 1), 365);
-  const caps = resolveRuntimeCaps(env);
+  const caps = resolveRuntimeCaps(env, mode);
   const errors: string[] = [];
   const enableHn = (env.ENABLE_HN_SOURCE ?? 'true').toLowerCase() === 'true';
-  const llmDedupeMaxCalls = caps.llmDedupeMaxCalls;
+  const shouldUseLlmDedupe = (env.LLM_DEDUPE_ENABLED ?? 'true').toLowerCase() === 'true' && caps.llmDedupeMaxCalls > 0;
+  const llmDedupeMaxCalls = shouldUseLlmDedupe ? caps.llmDedupeMaxCalls : 0;
   let llmDedupeCalls = 0;
   const llmEnrichCalls = 0;
-  const knownEvents = await recentStoredEvents(env.DB, 120);
-  const sourceResults = await Promise.allSettled([
-    enableHn ? fetchHnEvents(fetchFn, caps.hnMaxItems) : Promise.resolve([]),
-    fetchNvdEvents(fetchFn, env.NVD_API_KEY),
-    fetchCisaKevEvents(fetchFn),
-    fetchEuvdEvents(fetchFn),
-    fetchGitHubAdvisoryEvents(fetchFn, env.GITHUB_API_TOKEN),
-    fetchRssEvents(fetchFn, env),
-  ]);
+  const timedFetch = withFetchTimeout(fetchFn, caps.fetchTimeoutMs);
+  const rssFeedCount = resolveRssFeedUrls(env).length;
 
-  const rawEvents: SourceEvent[] = [];
-  for (const result of sourceResults) {
-    if (result.status === 'fulfilled') {
-      rawEvents.push(...result.value);
-    } else {
-      errors.push(result.reason instanceof Error ? result.reason.message : 'unknown source error');
+  if (mode === 'cron') {
+    const lockPayload = JSON.stringify({ runId, acquiredAt: nowIso });
+    const lock = await acquireCronLock(env.DB, nowIso, lockPayload);
+    if (lock.error) {
+      errors.push(`cron lock warning: ${lock.error}`);
+    }
+    if (!lock.acquired) {
+      const lockSkippedResult = {
+        ...baseResult,
+        lockSkipped: true,
+        errors,
+      };
+      console.log(JSON.stringify({ event: 'ingestion_summary', runId, ...lockSkippedResult, errors_count: errors.length }));
+      return lockSkippedResult;
     }
   }
 
-  const seenFingerprints = new Set<string>();
-  let relevant = 0;
-  let inserted = 0;
-  let deduped = 0;
-  let draftsCreated = 0;
+  try {
+    const knownEvents = await recentStoredEvents(env.DB, 120);
+    const seenFingerprints = new Set<string>();
+    let fetched = 0;
+    let relevant = 0;
+    let processed = 0;
+    let inserted = 0;
+    let deduped = 0;
+    let queuedForNextRun = 0;
+    let draftsCreated = 0;
+    let dbWrites = 0;
+    let stopReason: IngestionStopReason = 'completed';
 
-  for (const raw of rawEvents) {
-    try {
-      const stored = await toStoredEvent(raw);
-      if (!stored) {
+    for (const source of SOURCE_ORDER) {
+      if (source === 'hn' && !enableHn) {
         continue;
       }
-      if (!isEventRecent(stored.publishedAt, maxAgeDays, now)) {
+
+      if (Date.now() - startedAt > caps.maxRuntimeMs) {
+        stopReason = 'runtime_budget';
+        break;
+      }
+
+      const stats = sourceStats[source];
+      let sourceEvents: SourceEvent[] = [];
+      try {
+        if (source === 'nvd') {
+          sourceEvents = await fetchNvdEvents(timedFetch, env.NVD_API_KEY, caps.nvdResultsPerKeyword);
+        } else if (source === 'cisa_kev') {
+          sourceEvents = await fetchCisaKevEvents(timedFetch, caps.cisaMaxItemsPerRun);
+        } else if (source === 'euvd') {
+          sourceEvents = await fetchEuvdEvents(timedFetch, caps.euvdMaxItemsPerRun);
+        } else if (source === 'ghsa') {
+          sourceEvents = await fetchGitHubAdvisoryEvents(timedFetch, env.GITHUB_API_TOKEN, caps.ghsaMaxItemsPerRun);
+        } else if (source === 'rss') {
+          sourceEvents = await fetchRssEvents(timedFetch, env, caps.rssMaxItemsPerFeed);
+        } else if (source === 'hn') {
+          sourceEvents = await fetchHnEvents(timedFetch, caps.hnMaxItems);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : `source fetch failed (${source})`;
+        errors.push(message);
+        stats.errors += 1;
         continue;
       }
-      relevant += 1;
 
-      if (seenFingerprints.has(stored.fingerprint)) {
-        deduped += 1;
-        continue;
+      fetched += sourceEvents.length;
+      stats.fetched += sourceEvents.length;
+
+      let cursorPublishedAt: string | null = null;
+      try {
+        cursorPublishedAt = await readSourceCursor(env.DB, source);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : `cursor read failed (${source})`;
+        errors.push(message);
+        stats.errors += 1;
       }
-      seenFingerprints.add(stored.fingerprint);
 
-      const heuristicCandidates = knownEvents
-        .filter((item) => isSemanticCandidate(item, stored))
-        .slice(0, 4);
+      const sourceCap = sourceMaxItems(source, caps, rssFeedCount);
+      const prepared = prepareSourceQueue(source, sourceEvents, cursorPublishedAt, sourceCap);
+      stats.eligible += prepared.eligibleCount;
+      stats.queued += prepared.queuedOverflow;
+      queuedForNextRun += prepared.queuedOverflow;
 
-      let duplicateBySignal = false;
-      for (const candidate of knownEvents) {
-        if (isStrictDuplicateHeuristic(candidate, stored)) {
-          duplicateBySignal = true;
+      let latestProcessedPublishedAt: string | null = null;
+
+      for (let index = 0; index < prepared.queue.length; index += 1) {
+        if (Date.now() - startedAt > caps.maxRuntimeMs) {
+          stopReason = 'runtime_budget';
+          const remaining = prepared.queue.length - index;
+          stats.queued += remaining;
+          queuedForNextRun += remaining;
           break;
         }
-      }
+        if (processed >= caps.maxProcessEvents) {
+          stopReason = 'event_budget';
+          const remaining = prepared.queue.length - index;
+          stats.queued += remaining;
+          queuedForNextRun += remaining;
+          break;
+        }
+        if (dbWrites >= caps.maxDbWrites) {
+          stopReason = 'db_budget';
+          const remaining = prepared.queue.length - index;
+          stats.queued += remaining;
+          queuedForNextRun += remaining;
+          break;
+        }
 
-      let duplicateByLlm = false;
-      if (!duplicateBySignal && (env.LLM_DEDUPE_ENABLED ?? 'true').toLowerCase() === 'true') {
-        for (const candidate of heuristicCandidates) {
-          if (llmDedupeCalls >= llmDedupeMaxCalls) {
-            break;
+        const raw = prepared.queue[index];
+        try {
+          const stored = await toStoredEvent(raw);
+          if (!stored) {
+            continue;
           }
-          llmDedupeCalls += 1;
-          try {
-            const decision = await llmDuplicateDecision(env, stored, candidate);
-            if (decision?.duplicate && decision.confidence >= 0.75) {
-              duplicateByLlm = true;
+          const publishedMs = parseDateSafe(stored.publishedAt);
+          const hasValidPublishedAt = publishedMs !== null;
+          if (hasValidPublishedAt && !isEventRecent(stored.publishedAt, maxAgeDays, startedAt)) {
+            continue;
+          }
+
+          if (hasValidPublishedAt && publishedMs !== null) {
+            latestProcessedPublishedAt = new Date(publishedMs).toISOString();
+          }
+
+          relevant += 1;
+          processed += 1;
+          stats.processed += 1;
+
+          if (seenFingerprints.has(stored.fingerprint)) {
+            deduped += 1;
+            stats.deduped += 1;
+            continue;
+          }
+          seenFingerprints.add(stored.fingerprint);
+
+          const heuristicCandidates = knownEvents
+            .filter((item) => isSemanticCandidate(item, stored))
+            .slice(0, 4);
+
+          let duplicateBySignal = false;
+          for (const candidate of knownEvents) {
+            if (isStrictDuplicateHeuristic(candidate, stored)) {
+              duplicateBySignal = true;
               break;
             }
-          } catch (error) {
-            const message = error instanceof Error ? error.message : 'llm dedupe error';
-            errors.push(message);
           }
+
+          let duplicateByLlm = false;
+          if (!duplicateBySignal && shouldUseLlmDedupe) {
+            for (const candidate of heuristicCandidates) {
+              if (llmDedupeCalls >= llmDedupeMaxCalls) {
+                break;
+              }
+              llmDedupeCalls += 1;
+              try {
+                const decision = await llmDuplicateDecision(env, stored, candidate);
+                if (decision?.duplicate && decision.confidence >= 0.75) {
+                  duplicateByLlm = true;
+                  break;
+                }
+              } catch (error) {
+                const message = error instanceof Error ? error.message : 'llm dedupe error';
+                errors.push(message);
+                stats.errors += 1;
+              }
+            }
+          }
+
+          if (duplicateBySignal || duplicateByLlm) {
+            deduped += 1;
+            stats.deduped += 1;
+            continue;
+          }
+
+          const persisted = await storeEvent(env.DB, stored, nowIso);
+          dbWrites += 1;
+          if (persisted.inserted) {
+            inserted += 1;
+            stats.inserted += 1;
+            knownEvents.unshift(stored);
+            if (knownEvents.length > 150) {
+              knownEvents.pop();
+            }
+          } else {
+            deduped += 1;
+            stats.deduped += 1;
+          }
+
+          // Hybrid workflow:
+          // - High severity incidents from trusted sources auto-publish.
+          // - Other incidents remain ingestion-only until manually drafted in admin.
+          if (shouldAutoPublish(stored, env)) {
+            if (dbWrites >= caps.maxDbWrites) {
+              stopReason = 'db_budget';
+              const remaining = prepared.queue.length - index - 1;
+              if (remaining > 0) {
+                stats.queued += remaining;
+                queuedForNextRun += remaining;
+              }
+              break;
+            }
+            const draft = buildDraftPost(stored, nowIso, true);
+            const savedDraft = await storeDraft(env.DB, persisted.eventId, draft, nowIso);
+            dbWrites += 1;
+            if (savedDraft.inserted) {
+              draftsCreated += 1;
+            }
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'pipeline processing error';
+          errors.push(message);
+          stats.errors += 1;
         }
       }
 
-      if (duplicateBySignal || duplicateByLlm) {
-        deduped += 1;
-        continue;
-      }
-
-      const persisted = await storeEvent(env.DB, stored, nowIso);
-      if (persisted.inserted) {
-        inserted += 1;
-        knownEvents.unshift(stored);
-        if (knownEvents.length > 150) {
-          knownEvents.pop();
-        }
-      } else {
-        deduped += 1;
-      }
-
-      // Hybrid workflow:
-      // - High severity incidents from trusted sources auto-publish.
-      // - Other incidents remain ingestion-only until manually drafted in admin.
-      if (shouldAutoPublish(stored, env)) {
-        const draft = buildDraftPost(stored, nowIso, true);
-        const savedDraft = await storeDraft(env.DB, persisted.eventId, draft, nowIso);
-        if (savedDraft.inserted) {
-          draftsCreated += 1;
+      if (latestProcessedPublishedAt) {
+        try {
+          await writeSourceCursor(env.DB, source, latestProcessedPublishedAt, nowIso, runId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : `cursor write failed (${source})`;
+          errors.push(message);
+          stats.errors += 1;
         }
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'pipeline processing error';
-      errors.push(message);
+
+      if (stopReason !== 'completed') {
+        break;
+      }
+    }
+
+    const result: IngestionRunResult = {
+      mode,
+      lockSkipped: false,
+      stopReason,
+      fetched,
+      relevant,
+      processed,
+      inserted,
+      deduped,
+      queuedForNextRun,
+      draftsCreated,
+      llmDedupeCalls,
+      llmEnrichCalls,
+      sourceStats,
+      errors,
+    };
+
+    console.log(
+      JSON.stringify({
+        event: 'ingestion_summary',
+        runId,
+        mode,
+        lockSkipped: false,
+        stopReason,
+        fetched,
+        relevant,
+        processed,
+        inserted,
+        deduped,
+        queuedForNextRun,
+        draftsCreated,
+        llmDedupeCalls,
+        errors_count: errors.length,
+        sourceStats,
+      })
+    );
+
+    return result;
+  } finally {
+    if (mode === 'cron') {
+      try {
+        await deleteIngestionState(env.DB, CRON_LOCK_KEY);
+      } catch {
+        // Lock release failure should not fail the run response.
+      }
     }
   }
-
-  return {
-    fetched: rawEvents.length,
-    relevant,
-    inserted,
-    deduped,
-    draftsCreated,
-    llmDedupeCalls,
-    llmEnrichCalls,
-    errors,
-  };
 }

@@ -129,7 +129,7 @@ Feed overrides:
 - HN uses an incident-only gate (CVE/exploit/breach/prompt-injection patterns) and excludes common HN noise patterns (Show HN, benchmarks, generic launches).
 - Set `HN_MAX_ITEMS` (default `8`) to cap HN subrequests and avoid Worker resource-limit errors.
 - Set `ENABLE_HN_SOURCE=false` to disable HN ingestion temporarily.
-- Auto-publish rule: incidents from trusted sources in `AUTO_PUBLISH_TRUSTED_SOURCES` (default `nvd`) and meeting `AUTO_PUBLISH_MIN_SEVERITY` (default `high`) are published immediately.
+- Auto-publish rule: incidents from trusted sources in `AUTO_PUBLISH_TRUSTED_SOURCES` (default `nvd,cisa_kev,euvd,ghsa,rss,hn`) and meeting `AUTO_PUBLISH_MIN_SEVERITY` (default `high`) are published immediately.
 - GHSA ingestion now stores concise summary-first text (with optional short excerpt) and caps persisted summaries to prevent oversized markdown blobs in incident pages.
 
 Behavior:
