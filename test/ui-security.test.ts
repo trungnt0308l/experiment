@@ -6,6 +6,7 @@ describe('incident page sanitization', () => {
     const incident: IncidentEntry = {
       slug: 'unsafe-incident',
       title: 'Unsafe <script>alert(1)</script> Incident',
+      severity: 'HIGH',
       incidentDate: 'February 14, 2026',
       publishedDate: 'February 14, 2026',
       summary: '<script>alert(1)</script><img src="/img/proof.png" /> Compromised system.',

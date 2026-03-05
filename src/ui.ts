@@ -6,6 +6,7 @@ export type IncidentSource = {
 export type IncidentEntry = {
   slug: string;
   title: string;
+  severity: string;
   incidentDate: string;
   publishedDate: string;
   summary: string;
@@ -164,6 +165,37 @@ function renderSeoMeta(input: SeoMeta): string {
   <link rel="sitemap" type="application/xml" href="${escapeAttr(absoluteUrl(input.siteUrl, '/sitemap.xml'))}" />`;
 }
 
+function renderJsonLd(data: Record<string, unknown>): string {
+  const json = JSON.stringify(data).replace(/<\//g, '<\\/');
+  return `<script type="application/ld+json">${json}</script>`;
+}
+
+function severityBadgeStyle(severity: string): string {
+  const level = severity.toUpperCase();
+  if (level === 'HIGH') return 'background:#f9d9d8;color:#7a1614;border:1px solid #e8b8b7;';
+  if (level === 'LOW') return 'background:#d1e7dd;color:#0f5132;border:1px solid #a3cfbb;';
+  return 'background:#fef3cd;color:#664d03;border:1px solid #e0c97f;';
+}
+
+function severityBannerHtml(severity: string): string {
+  const level = severity.toUpperCase();
+  let bg: string, border: string, color: string, guidance: string;
+  if (level === 'HIGH') {
+    bg = '#f9d9d8'; border = '#e8b8b7'; color = '#7a1614';
+    guidance = 'Immediate review and remediation recommended.';
+  } else if (level === 'LOW') {
+    bg = '#d1e7dd'; border = '#a3cfbb'; color = '#0f5132';
+    guidance = 'Monitor and review during regular security triage.';
+  } else {
+    bg = '#fef3cd'; border = '#e0c97f'; color = '#664d03';
+    guidance = 'Review and assess exposure at your earliest convenience.';
+  }
+  const label = `${level} SEVERITY`;
+  return `<div style="background:${bg};border:1px solid ${border};color:${color};padding:12px 16px;margin-bottom:14px;font-size:15px;">
+    <strong>${label}</strong> &mdash; ${guidance}
+  </div>`;
+}
+
 function renderSiteHeader(appName = 'AI Security Radar'): string {
   return `<header class="topbar">
       <a class="brand-link" href="/" aria-label="${escapeHtml(appName)} homepage">
@@ -208,6 +240,50 @@ export function renderLandingPage(
     siteUrl,
     type: 'website',
   });
+  const resolvedSiteUrl = normalizeSiteUrl(siteUrl);
+  const orgJsonLd = renderJsonLd({
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'AI Security Radar',
+    url: resolvedSiteUrl,
+    description: 'AI Security Radar monitors trusted advisories and incident sources, then delivers actionable remediation alerts for security and compliance teams.',
+    contactPoint: {
+      '@type': 'ContactPoint',
+      email: 'security@aisecurityradar.com',
+      contactType: 'customer support',
+    },
+  });
+  const faqEntries = [
+    {
+      q: 'What types of AI security incidents does AI Security Radar track?',
+      a: 'AI Security Radar tracks vulnerabilities and incidents affecting AI systems, machine learning pipelines, and LLM-integrated applications. Sources include the CISA Known Exploited Vulnerabilities catalog, the National Vulnerability Database (NVD), GitHub Security Advisories (GHSA), European Vulnerability Database (EUVD), and curated CERT and RSS feeds covering supply-chain risks, prompt injection, model poisoning, and more.',
+    },
+    {
+      q: 'How quickly are alerts delivered after an incident is published?',
+      a: 'The automated ingestion pipeline runs on a regular schedule, checking all monitored sources for new advisories. Once a relevant incident is detected and triaged, an alert is assembled and delivered to subscribers, typically within minutes of publication at the source.',
+    },
+    {
+      q: 'What information is included in each alert?',
+      a: 'Every alert includes the incident title, assessed severity level, a plain-language summary of what happened, an impact assessment explaining who is affected and how, step-by-step remediation guidance, and direct links to the original advisory sources for verification.',
+    },
+    {
+      q: 'Which notification channels are supported?',
+      a: 'AI Security Radar currently delivers alerts via email and Telegram. Subscribers can choose one or both channels so that the right people on your security or compliance team receive timely notifications through the tools they already use.',
+    },
+    {
+      q: 'Is AI Security Radar free during the early access period?',
+      a: 'Yes. During the early access period, AI Security Radar is available at no cost to waitlist members. Join the waitlist with your work email to receive access details and start getting alerts as soon as they are available.',
+    },
+  ];
+  const faqJsonLd = renderJsonLd({
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: faqEntries.map((entry) => ({
+      '@type': 'Question',
+      name: entry.q,
+      acceptedAnswer: { '@type': 'Answer', text: entry.a },
+    })),
+  });
   const sampleAlertCard = sampleAlert
     ? `<div class="alert-card">
           <div class="severity">${toSafeText(sampleAlert.severity)}</div>
@@ -231,6 +307,8 @@ export function renderLandingPage(
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(appName)}</title>
   ${seoSnippet}
+  ${orgJsonLd}
+  ${faqJsonLd}
   ${gaSnippet}
   <style>
     :root {
@@ -408,6 +486,9 @@ export function renderLandingPage(
       gap: 12px;
       flex-wrap: wrap;
     }
+    details { border: 1px solid var(--line); background: var(--card); padding: 14px; margin-bottom: 8px; }
+    summary { cursor: pointer; font-weight: 700; font-size: 17px; }
+    details p { margin: 8px 0 0; font-size: 16px; }
     @media (max-width: 900px) {
       .proof-row { grid-template-columns: 1fr 1fr; }
       .grid { grid-template-columns: 1fr; }
@@ -434,6 +515,21 @@ export function renderLandingPage(
       <div class="proof">Tracks GitHub Advisories and CERT feeds</div>
       <div class="proof">Source-cited recommendations</div>
       <div class="proof">Email + Telegram delivery</div>
+    </section>
+
+    <section class="panel" style="margin-bottom:14px;">
+      <h2>What is AI Security Radar?</h2>
+      <p>AI Security Radar is an automated monitoring and alerting service that watches trusted vulnerability databases, government advisories, and security research feeds for incidents affecting AI systems, machine learning pipelines, and LLM-integrated applications.</p>
+      <p>When a relevant incident is detected, the system triages it for severity and relevance, then delivers a concise alert brief to security and compliance teams via email or Telegram. Each alert includes an impact assessment, recommended remediation steps, and links to original sources so teams can act quickly with confidence.</p>
+      <p>Coverage spans the CISA Known Exploited Vulnerabilities catalog, the National Vulnerability Database, GitHub Security Advisories, the European Vulnerability Database, and curated CERT and RSS feeds, so your team does not need to monitor each channel independently.</p>
+    </section>
+
+    <section style="margin-bottom:14px;">
+      <h2>Frequently Asked Questions</h2>
+      ${faqEntries.map((entry) => `<details>
+        <summary>${escapeHtml(entry.q)}</summary>
+        <p>${escapeHtml(entry.a)}</p>
+      </details>`).join('\n      ')}
     </section>
 
     <section class="grid">
@@ -567,7 +663,10 @@ export function renderIncidentsPage(incidents: IncidentEntry[], siteUrl?: string
       const safeIncidentDate = toSafeText(item.incidentDate);
       const safePublishedDate = toSafeText(item.publishedDate);
       const safeSlug = encodeURIComponent(item.slug);
+      const badgeStyle = severityBadgeStyle(item.severity);
+      const safeSeverity = toSafeText(item.severity);
       return `<article style="border:1px solid #ddd6c8;background:#fffdf9;padding:16px;margin-bottom:12px;">
+        <span style="display:inline-block;font-size:12px;padding:2px 6px;margin-bottom:8px;${badgeStyle}">${safeSeverity}</span>
         <h2 style="margin:0 0 8px;font-size:24px;"><a href="/incidents/${safeSlug}" style="color:#1a1815;text-decoration:none;">${safeTitle}</a></h2>
         <p style="margin:0 0 8px;font-size:14px;color:#5f584f;">Incident date: ${safeIncidentDate} | Published: ${safePublishedDate}</p>
         <p style="margin:0 0 8px;">${safeSummary}</p>
@@ -590,6 +689,18 @@ export function renderIncidentsPage(incidents: IncidentEntry[], siteUrl?: string
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Recent AI Security Incidents</title>
   ${seoSnippet}
+  ${renderJsonLd({
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: 'Recent AI Security Incidents',
+    description: 'Chronological AI security incidents with impact summaries, source citations, and remediation guidance.',
+    url: absoluteUrl(siteUrl, '/incidents'),
+    isPartOf: {
+      '@type': 'WebSite',
+      name: 'AI Security Radar',
+      url: normalizeSiteUrl(siteUrl),
+    },
+  })}
   <style>
     body { font-family: Georgia, "Times New Roman", serif; margin: 0; background:#f7f5ef; color:#1c1915; }
     .wrap { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; }
@@ -621,7 +732,8 @@ export function renderIncidentsPage(incidents: IncidentEntry[], siteUrl?: string
     ${renderSiteHeader()}
     <a class="back" href="/">Back to homepage</a>
     <h1>Recent AI Security Incidents</h1>
-    <p>Curated incidents with impact and remediation notes.</p>
+    <p>This page lists verified AI security incidents curated by AI Security Radar. Each entry includes a summary of the incident, its assessed severity and impact on AI systems and organizations, recommended remediation steps, and links to authoritative sources such as CISA, NVD, and GitHub Security Advisories.</p>
+    <p style="color:#5f584f;font-size:16px;">Incidents are listed in reverse chronological order. Select any incident to view the full analysis, including detailed impact assessment and step-by-step response guidance.</p>
     ${cards}
     ${renderSiteFooter()}
   </main>
@@ -658,10 +770,11 @@ export function renderIncidentDetailPage(
     .slice(0, 3)
     .map((item) => `<li><a href="/incidents/${encodeURIComponent(item.slug)}">${toSafeText(item.title)}</a></li>`)
     .join('');
-  const seoDescription = trimToSentence(
+  const baseSeoDescription = trimToSentence(
     normalizeWhitespace(stripHtmlTags(incident.summary)) || 'AI security incident summary and response guidance.',
-    260
+    240
   );
+  const seoDescription = `[${incident.severity.toUpperCase()}] ${baseSeoDescription}`;
   const seoSnippet = renderSeoMeta({
     title: `${incident.title} | AI Security Radar`,
     description: seoDescription,
@@ -670,6 +783,16 @@ export function renderIncidentDetailPage(
     type: 'article',
   });
   const incidentUrl = absoluteUrl(siteUrl, `/incidents/${incident.slug}`);
+  const articleJsonLd = renderJsonLd({
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: incident.title,
+    datePublished: incident.publishedDate,
+    description: seoDescription,
+    url: incidentUrl,
+    publisher: { '@type': 'Organization', name: 'AI Security Radar' },
+    author: { '@type': 'Organization', name: 'AI Security Radar' },
+  });
   const shareText = encodeURIComponent(`AI security incident: ${incident.title}`);
   const shareUrl = encodeURIComponent(incidentUrl);
   const shareX = `https://twitter.com/intent/tweet?text=${shareText}&url=${shareUrl}`;
@@ -682,6 +805,7 @@ export function renderIncidentDetailPage(
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${safeTitle}</title>
   ${seoSnippet}
+  ${articleJsonLd}
   <style>
     body { font-family: Georgia, "Times New Roman", serif; margin: 0; background:#f7f5ef; color:#1c1915; }
     .wrap { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; }
@@ -749,6 +873,7 @@ export function renderIncidentDetailPage(
     ${renderSiteHeader()}
     <p><a href="/incidents">Back to incidents</a></p>
     <article>
+      ${severityBannerHtml(incident.severity)}
       <h1>${safeTitle}</h1>
       <p class="meta">Incident date: ${safeIncidentDate} | Published: ${safePublishedDate}</p>
       <p>${safeSummary}</p>

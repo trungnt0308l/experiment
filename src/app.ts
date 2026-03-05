@@ -91,6 +91,7 @@ type IncidentSource = {
 type IncidentEntry = {
   slug: string;
   title: string;
+  severity: string;
   sortDate: string;
   incidentDate: string;
   publishedDate: string;
@@ -253,6 +254,7 @@ async function fetchPublishedDbIncidents(db: D1Database | undefined): Promise<In
     return {
       slug,
       title,
+      severity,
       sortDate,
       incidentDate,
       publishedDate,
