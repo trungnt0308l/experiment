@@ -101,18 +101,31 @@ const SOURCE_ORDER: SourceEvent['source'][] = ['nvd', 'cisa_kev', 'euvd', 'ghsa'
 const DEFAULT_AUTO_PUBLISH_TRUSTED_SOURCES = SOURCE_ORDER.join(',');
 
 const AI_TERMS = [
-  'ai',
   'artificial intelligence',
+  'generative ai',
+  'genai',
   'llm',
-  'model',
-  'agent',
+  'large language model',
+  'machine learning',
+  'foundation model',
   'chatgpt',
-  'gemini',
-  'copilot',
   'claude',
+  'copilot',
+  'gemini',
   'anthropic',
   'openai',
-  'prompt',
+  'prompt injection',
+  'jailbreak',
+  'ai agent',
+  'ai assistant',
+  'langchain',
+  'llamaindex',
+  'mindsdb',
+  'keras',
+  'fickling',
+  'picklescan',
+  'hugging face',
+  'model weights',
 ];
 
 const SECURITY_TERMS = [
@@ -120,6 +133,8 @@ const SECURITY_TERMS = [
   'vulnerability',
   'cve',
   'breach',
+  'remote code execution',
+  'arbitrary code execution',
   'rce',
   'exploit',
   'malware',
@@ -392,8 +407,25 @@ function toIsoFromUnixSeconds(unixSeconds: number | undefined): string | null {
   return new Date(unixSeconds * 1000).toISOString();
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsTerm(text: string, term: string): boolean {
+  const pattern = term
+    .trim()
+    .split(/\s+/)
+    .map((part) => escapeRegExp(part))
+    .join('\\s+');
+  return new RegExp(`(^|[^a-z0-9])${pattern}(?=$|[^a-z0-9])`, 'i').test(text);
+}
+
 function hasAnyTerm(text: string, terms: string[]): boolean {
-  return terms.some((term) => text.includes(term));
+  return terms.some((term) => containsTerm(text, term));
+}
+
+function countMatchingTerms(text: string, terms: string[]): number {
+  return terms.filter((term) => containsTerm(text, term)).length;
 }
 
 function isPresent<T>(value: T | null | undefined): value is T {
@@ -402,8 +434,10 @@ function isPresent<T>(value: T | null | undefined): value is T {
 
 export function isLikelyAiSecurityIncident(title: string, summary: string, source: SourceEvent['source']): boolean {
   const haystack = `${title} ${summary}`.toLowerCase();
-  const hasAiSignal = hasAnyTerm(haystack, AI_TERMS);
-  const hasSecuritySignal = hasAnyTerm(haystack, SECURITY_TERMS);
+  const aiHits = countMatchingTerms(haystack, AI_TERMS);
+  const securityHits = countMatchingTerms(haystack, SECURITY_TERMS);
+  const hasAiSignal = aiHits > 0;
+  const hasSecuritySignal = securityHits > 0;
 
   if (source === 'hn') {
     const hasIncidentSignal = hasAnyTerm(haystack, HN_INCIDENT_TERMS);
@@ -415,9 +449,8 @@ export function isLikelyAiSecurityIncident(title: string, summary: string, sourc
     return hasAiSignal && hasSecuritySignal;
   }
 
-  // NVD connector is already keyword-filtered to AI-related searches.
   if (source === 'nvd') {
-    return true;
+    return hasAiSignal && hasSecuritySignal;
   }
 
   // GHSA, CISA KEV, and EUVD entries are security-focused; require AI context.
@@ -429,9 +462,9 @@ export function scoreIncidentRelevance(title: string, summary: string, source: S
     return 0;
   }
   const haystack = `${title} ${summary}`.toLowerCase();
-  const aiHits = AI_TERMS.filter((term) => haystack.includes(term)).length;
-  const securityHits = SECURITY_TERMS.filter((term) => haystack.includes(term)).length;
-  const weighted = Math.min(1, (aiHits * 0.45 + securityHits * 0.55) / 4);
+  const aiHits = countMatchingTerms(haystack, AI_TERMS);
+  const securityHits = countMatchingTerms(haystack, SECURITY_TERMS);
+  const weighted = Math.min(1, (aiHits * 0.6 + securityHits * 0.4) / 4);
   return Math.max(0.4, weighted);
 }
 
@@ -700,12 +733,15 @@ function inferSeverity(title: string, summary: string): 'low' | 'medium' | 'high
   const haystack = `${title} ${summary}`.toLowerCase();
   let inferred: 'low' | 'medium' | 'high' = 'low';
   for (const term of HIGH_SEVERITY_TERMS) {
-    if (haystack.includes(term)) {
+    if (containsTerm(haystack, term)) {
       inferred = 'high';
       break;
     }
   }
-  if (inferred === 'low' && (haystack.includes('cve') || haystack.includes('vulnerability') || haystack.includes('exploit'))) {
+  if (
+    inferred === 'low' &&
+    (containsTerm(haystack, 'cve') || containsTerm(haystack, 'vulnerability') || containsTerm(haystack, 'exploit'))
+  ) {
     inferred = 'medium';
   }
   return inferred;
@@ -754,6 +790,14 @@ function minSeverity(env: EnvBindings): 'low' | 'medium' | 'high' {
   return 'high';
 }
 
+function minAutoPublishConfidence(env: EnvBindings): number {
+  const raw = Number(env.AUTO_PUBLISH_MIN_CONFIDENCE ?? '0.74');
+  if (!Number.isFinite(raw)) {
+    return 0.74;
+  }
+  return Math.min(0.99, Math.max(0, raw));
+}
+
 function trustedSources(env: EnvBindings): Set<string> {
   const raw = env.AUTO_PUBLISH_TRUSTED_SOURCES ?? DEFAULT_AUTO_PUBLISH_TRUSTED_SOURCES;
   return new Set(
@@ -768,6 +812,9 @@ export function shouldAutoPublish(event: StoredEvent, env: EnvBindings): boolean
   const allowedSources = trustedSources(env);
   const sourceAllowed = allowedSources.has(event.source.toLowerCase());
   if (!sourceAllowed) {
+    return false;
+  }
+  if (event.confidence < minAutoPublishConfidence(env)) {
     return false;
   }
   return severityRank(event.severity) >= severityRank(minSeverity(env));

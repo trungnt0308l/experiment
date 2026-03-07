@@ -3,24 +3,52 @@ export type IncidentSource = {
   url: string;
 };
 
+export type IncidentSourceKind = 'hn' | 'nvd' | 'rss' | 'ghsa' | 'cisa_kev' | 'euvd' | 'unknown';
+
 export type IncidentEntry = {
   slug: string;
   title: string;
+  sourceTitle?: string;
+  sortDate: string;
   incidentDate: string;
   publishedDate: string;
   summary: string;
   impact: string;
   remedy: string[];
   sources: IncidentSource[];
+  sourceKind?: IncidentSourceKind;
+  severity?: 'low' | 'medium' | 'high';
+  confidence?: number | null;
+  indexable?: boolean;
+  qualityReasons?: string[];
 };
 
 export type LandingSampleAlert = {
   title: string;
+  incidentUrl: string;
   severity: string;
   summary: string;
   remedy: string;
   sourceLabel: string;
   sourceUrl: string;
+};
+
+export type IncidentsPageMeta = {
+  currentPage: number;
+  totalPages: number;
+  totalIncidents: number;
+  prevPagePath?: string;
+  nextPagePath?: string;
+  siteUrl?: string;
+};
+
+export type IncidentQualityAssessment = {
+  indexable: boolean;
+  aiSignals: string[];
+  reasons: string[];
+  summaryLength: number;
+  hasSpecificImpact: boolean;
+  hasSpecificRemedy: boolean;
 };
 
 function escapeHtml(value: string): string {
@@ -110,6 +138,126 @@ function extractImageUrls(raw: string, base?: string): string[] {
   return resolved.slice(0, 6);
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsTerm(text: string, term: string): boolean {
+  const pattern = term
+    .trim()
+    .split(/\s+/)
+    .map((part) => escapeRegExp(part))
+    .join('\\s+');
+  return new RegExp(`(^|[^a-z0-9])${pattern}(?=$|[^a-z0-9])`, 'i').test(text);
+}
+
+const INCIDENT_AI_SIGNALS = [
+  'artificial intelligence',
+  'generative ai',
+  'genai',
+  'llm',
+  'large language model',
+  'machine learning',
+  'foundation model',
+  'prompt injection',
+  'jailbreak',
+  'ai agent',
+  'copilot',
+  'chatgpt',
+  'openai',
+  'anthropic',
+  'claude',
+  'gemini',
+  'langchain',
+  'llamaindex',
+  'mindsdb',
+  'keras',
+  'fickling',
+  'picklescan',
+  'hugging face',
+  'model weights',
+  'ml pipeline',
+];
+
+const GENERIC_IMPACT_PATTERNS = [
+  /^severity\s+(low|medium|high)\.\s+confidence/i,
+  /^severity\s+(low|medium|high)\s+with confidence/i,
+];
+
+const GENERIC_REMEDY_STARTS = [
+  'validate whether your organization uses the affected ai tool',
+  'confirm whether affected products, models, or integrations are used',
+  'apply vendor patches or mitigations and restrict risky permissions',
+  'apply vendor fixes or mitigations and restrict risky permissions',
+  'monitor logs for related indicators and document containment',
+];
+
+function normalizeForAnalysis(value: string): string {
+  return normalizeWhitespace(stripHtmlTags(value)).toLowerCase();
+}
+
+function uniqueTerms(text: string, terms: string[]): string[] {
+  const found = new Set<string>();
+  for (const term of terms) {
+    if (containsTerm(text, term)) {
+      found.add(term);
+    }
+  }
+  return [...found];
+}
+
+function startsWithAny(text: string, prefixes: string[]): boolean {
+  return prefixes.some((prefix) => text.startsWith(prefix));
+}
+
+function hasSpecificRemedy(remedy: string[]): boolean {
+  if (remedy.length < 2) {
+    return false;
+  }
+  const normalized = remedy.map((item) => normalizeForAnalysis(item));
+  const genericCount = normalized.filter((item) => startsWithAny(item, GENERIC_REMEDY_STARTS)).length;
+  return genericCount < Math.min(2, normalized.length);
+}
+
+export function assessIncidentQuality(incident: IncidentEntry): IncidentQualityAssessment {
+  const titleText = normalizeForAnalysis(incident.sourceTitle ?? incident.title.replace(/^AI security incident:\s*/i, ''));
+  const summaryText = normalizeForAnalysis(incident.summary);
+  const impactText = normalizeForAnalysis(incident.impact);
+  const combined = `${titleText} ${summaryText} ${impactText}`;
+  const aiSignals = uniqueTerms(combined, INCIDENT_AI_SIGNALS);
+  const summaryLength = normalizeWhitespace(stripHtmlTags(incident.summary)).length;
+  const impactLooksGeneric = GENERIC_IMPACT_PATTERNS.some((pattern) => pattern.test(normalizeWhitespace(stripHtmlTags(incident.impact))));
+  const specificRemedy = hasSpecificRemedy(incident.remedy);
+  const reasons: string[] = [];
+  const confidence = typeof incident.confidence === 'number' ? incident.confidence : null;
+
+  if (aiSignals.length === 0) {
+    reasons.push('Weak AI-specific context');
+  }
+  if (summaryLength < 140) {
+    reasons.push('Incident summary is thin');
+  }
+  if (impactLooksGeneric) {
+    reasons.push('Impact narrative is generic');
+  }
+  if (!specificRemedy) {
+    reasons.push('Response guidance is generic');
+  }
+  if (confidence !== null && confidence < 0.6) {
+    reasons.push('Low confidence classification');
+  }
+
+  const indexable = aiSignals.length > 0 && summaryLength >= 140 && (confidence === null || confidence >= 0.6);
+  return {
+    indexable,
+    aiSignals,
+    reasons,
+    summaryLength,
+    hasSpecificImpact: !impactLooksGeneric,
+    hasSpecificRemedy: specificRemedy,
+  };
+}
+
 type SeoMeta = {
   title: string;
   description: string;
@@ -131,6 +279,157 @@ function absoluteUrl(siteUrl: string | undefined, path: string): string {
   const base = normalizeSiteUrl(siteUrl);
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
   return `${base}${cleanPath}`;
+}
+
+function formatConfidence(confidence: number | null | undefined): string {
+  if (typeof confidence !== 'number' || Number.isNaN(confidence)) {
+    return 'Unscored';
+  }
+  return `${Math.round(confidence * 100)}%`;
+}
+
+function humanizeSourceKind(sourceKind: IncidentSourceKind | undefined): string {
+  switch (sourceKind) {
+    case 'ghsa':
+      return 'GitHub Security Advisory';
+    case 'nvd':
+      return 'NVD';
+    case 'cisa_kev':
+      return 'CISA KEV';
+    case 'euvd':
+      return 'EUVD';
+    case 'rss':
+      return 'RSS advisory';
+    case 'hn':
+      return 'Hacker News signal';
+    default:
+      return 'Source advisory';
+  }
+}
+
+function classifyIncident(text: string): {
+  attackPath: string;
+  affectedSurface: string;
+  detectionSignals: string[];
+  businessImpact: string;
+} {
+  const normalized = text.toLowerCase();
+
+  if (containsTerm(normalized, 'prompt injection') || containsTerm(normalized, 'jailbreak')) {
+    return {
+      attackPath: 'Untrusted prompts or tool instructions can override intended guardrails, then trigger data access or unsafe downstream actions.',
+      affectedSurface: 'LLM prompts, agent workflows, retrieval layers, and connected tools should be reviewed first.',
+      detectionSignals: [
+        'Unexpected tool invocation chains after user prompts',
+        'Prompt logs that include instruction override patterns or policy bypass text',
+        'Retrieval or plugin calls that expose sensitive internal context',
+      ],
+      businessImpact: 'Prompt-layer weaknesses can expose regulated data, create unsafe actions, and weaken audit evidence around AI control boundaries.',
+    };
+  }
+
+  if (
+    containsTerm(normalized, 'remote code execution') ||
+    containsTerm(normalized, 'arbitrary code execution') ||
+    containsTerm(normalized, 'command injection') ||
+    containsTerm(normalized, 'rce')
+  ) {
+    return {
+      attackPath: 'An attacker can turn the vulnerable AI-adjacent component into a path for command execution on the host or service runtime.',
+      affectedSurface: 'Review AI plugins, copilots, model-serving helpers, CLI tools, and automation runtimes that execute system commands.',
+      detectionSignals: [
+        'New shell or process activity from AI-facing services',
+        'Unexpected outbound connections or file writes after prompt or API activity',
+        'Privilege changes, container escapes, or suspicious job execution logs',
+      ],
+      businessImpact: 'Code execution paths create immediate risk of host compromise, credential theft, and downstream lateral movement.',
+    };
+  }
+
+  if (
+    containsTerm(normalized, 'deserialization') ||
+    containsTerm(normalized, 'pickle') ||
+    containsTerm(normalized, 'model weights')
+  ) {
+    return {
+      attackPath: 'The malicious payload is embedded in model artifacts or serialized objects, then executes or bypasses scanning during load and inspection.',
+      affectedSurface: 'Model registries, artifact scanners, notebook workflows, and CI/CD steps that handle model files need immediate review.',
+      detectionSignals: [
+        'New or unsigned model artifacts entering the registry',
+        'Scanner output gaps for pickle or custom model formats',
+        'Unexpected code paths during model loading or validation jobs',
+      ],
+      businessImpact: 'Model artifact compromise undermines trust in the training and deployment chain and can create stealthy persistence in ML workflows.',
+    };
+  }
+
+  if (
+    containsTerm(normalized, 'exfiltration') ||
+    containsTerm(normalized, 'data leak') ||
+    containsTerm(normalized, 'file disclosure') ||
+    containsTerm(normalized, 'ssrf')
+  ) {
+    return {
+      attackPath: 'The flaw creates an unauthorized path to fetch, read, or exfiltrate sensitive data from connected systems or local files.',
+      affectedSurface: 'Review connectors, retrieval plugins, webhook targets, file access paths, and outbound network policies around AI services.',
+      detectionSignals: [
+        'Unexpected outbound requests from AI application components',
+        'Access to internal metadata endpoints, local files, or restricted datasets',
+        'Downloads or responses that contain internal documents, secrets, or embeddings',
+      ],
+      businessImpact: 'Data exposure creates direct confidentiality risk and can trigger incident notification, contractual, and regulatory obligations.',
+    };
+  }
+
+  if (
+    containsTerm(normalized, 'account takeover') ||
+    containsTerm(normalized, 'authentication bypass') ||
+    containsTerm(normalized, 'authorization bypass') ||
+    containsTerm(normalized, 'privilege escalation')
+  ) {
+    return {
+      attackPath: 'The weakness can let an attacker bypass identity checks or gain higher privileges inside an AI-facing product or workflow.',
+      affectedSurface: 'Audit SSO, service tokens, plugin credentials, user-to-tool permissions, and admin actions exposed through AI features.',
+      detectionSignals: [
+        'Unexpected admin actions or scope changes from AI-related users',
+        'Authentication events that skip normal challenge or approval steps',
+        'New tokens, integrations, or role assignments created without expected workflow traces',
+      ],
+      businessImpact: 'Identity control failures can expand blast radius quickly because AI tools often bridge multiple internal systems and datasets.',
+    };
+  }
+
+  if (containsTerm(normalized, 'denial of service') || containsTerm(normalized, 'dos')) {
+    return {
+      attackPath: 'An attacker can drive resource exhaustion or crash conditions in the vulnerable component through crafted traffic or content.',
+      affectedSurface: 'Check inference endpoints, parsing layers, queues, and file processing jobs that support AI features.',
+      detectionSignals: [
+        'Latency spikes or worker restarts on AI-serving endpoints',
+        'Memory or CPU saturation after malformed requests or artifacts',
+        'Queue backlogs, timeouts, or repeated crash loops in model services',
+      ],
+      businessImpact: 'Availability failures can interrupt customer-facing AI features and force emergency rollback or capacity isolation.',
+    };
+  }
+
+  return {
+    attackPath: 'The advisory indicates a security path that can affect AI applications, assistants, models, or connected automation workflows if the component is deployed.',
+    affectedSurface: 'Review the AI product, dependency, and integration points mentioned in the source advisory before broadening remediation.',
+    detectionSignals: [
+      'New security events tied to the affected component or advisory identifier',
+      'Changes in AI workflow behavior, access logs, or plugin execution after the advisory window',
+      'Evidence that the vulnerable version is active in environments that process sensitive data',
+    ],
+    businessImpact: 'Even when exploit details are still emerging, delayed triage can widen operational and compliance exposure around AI systems.',
+  };
+}
+
+function buildAiRelevanceSummary(incident: IncidentEntry, aiSignals: string[]): string {
+  if (aiSignals.length > 0) {
+    const labels = aiSignals.slice(0, 3).join(', ');
+    return `This page is treated as AI-specific because the source material references ${labels}, which places the issue inside an AI workflow, model, assistant, or supporting dependency rather than a generic software bulletin.`;
+  }
+  return `This advisory is available for operator review, but its AI relevance is currently weak, so the page is excluded from search indexing until stronger AI-specific evidence is added.`;
 }
 
 function escapeAttr(value: string): string {
@@ -164,12 +463,33 @@ function renderSeoMeta(input: SeoMeta): string {
   <link rel="sitemap" type="application/xml" href="${escapeAttr(absoluteUrl(input.siteUrl, '/sitemap.xml'))}" />`;
 }
 
+function incidentsPagePath(page: number): string {
+  return page <= 1 ? '/incidents' : `/incidents/page/${page}`;
+}
+
+function renderPaginationLinkTags(prevPath: string | undefined, nextPath: string | undefined, siteUrl?: string): string {
+  const links: string[] = [];
+  if (prevPath) {
+    links.push(`<link rel="prev" href="${escapeAttr(absoluteUrl(siteUrl, prevPath))}" />`);
+  }
+  if (nextPath) {
+    links.push(`<link rel="next" href="${escapeAttr(absoluteUrl(siteUrl, nextPath))}" />`);
+  }
+  return links.join('\n');
+}
+
+function renderJsonLd(value: Record<string, unknown>): string {
+  const body = JSON.stringify(value).replace(/</g, '\\u003c');
+  return `<script type="application/ld+json">${body}</script>`;
+}
+
 function renderSiteHeader(appName = 'AI Security Radar'): string {
   return `<header class="topbar">
       <a class="brand-link" href="/" aria-label="${escapeHtml(appName)} homepage">
         <div class="brand"><span class="mark">ASR</span> ${escapeHtml(appName)}</div>
       </a>
       <div class="nav">
+        <a class="link-btn" href="/methodology">Methodology</a>
         <a class="link-btn" href="/incidents">Recent Incidents</a>
         <a class="link-btn cta-nav" id="nav-get-notified" data-cta="nav_get_notified" href="/#waitlist-form">Get Notified</a>
       </div>
@@ -181,7 +501,7 @@ function renderSiteFooter(): string {
       <span>AI Security Radar</span>
       <span>Contact: <a href="mailto:security@aisecurityradar.com">security@aisecurityradar.com</a></span>
       <span>&copy; 2026 AI Security Radar</span>
-      <span><a href="/privacy">Privacy</a> | <a href="/terms">Terms</a> | <a href="/security">Security</a></span>
+      <span><a href="/methodology">Methodology</a> | <a href="/privacy">Privacy</a> | <a href="/terms">Terms</a> | <a href="/security">Security</a></span>
     </footer>`;
 }
 
@@ -201,17 +521,71 @@ export function renderLandingPage(
   </script>`
     : '';
   const seoSnippet = renderSeoMeta({
-    title: appName,
+    title: `${appName} | AI Security Incident Monitoring for Security Teams`,
     description:
-      'AI Security Radar monitors trusted advisories and incident sources, then delivers actionable remediation alerts for security and compliance teams.',
+      'AI Security Radar monitors AI-specific advisories, prompt-injection incidents, model supply-chain risks, and assistant security issues, then delivers source-cited remediation guidance for security teams.',
     canonicalPath: '/',
     siteUrl,
     type: 'website',
   });
+  const faqItems = [
+    {
+      question: 'What does AI Security Radar do?',
+      answer:
+        'AI Security Radar tracks trusted incident and advisory feeds, then sends source-cited alerts with likely impact and remediation guidance.',
+    },
+    {
+      question: 'Why register before a major incident hits?',
+      answer:
+        'Teams that register early receive faster awareness and action checklists, reducing the chance that delayed triage turns into a larger breach window.',
+    },
+    {
+      question: 'What evidence do alerts include?',
+      answer:
+        'Each alert includes source citations, severity context, and concrete response steps so security and compliance teams can document decisions quickly.',
+    },
+    {
+      question: 'Which incidents are considered AI-specific?',
+      answer:
+        'We focus on incidents tied to AI assistants, copilots, LLM workflows, model artifacts, prompt injection, and AI-relevant dependencies rather than generic software advisories with weak AI overlap.',
+    },
+    {
+      question: 'What has to be true before a public incident page is indexed?',
+      answer:
+        'A page needs clear AI-specific context, a substantive summary, and enough incident detail to be useful on its own. Thin or weakly related pages remain available for operator review but are excluded from search indexing.',
+    },
+  ];
+  const structuredData = [
+    renderJsonLd({
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: appName,
+      url: absoluteUrl(siteUrl, '/'),
+    }),
+    renderJsonLd({
+      '@context': 'https://schema.org',
+      '@type': 'Organization',
+      name: appName,
+      url: absoluteUrl(siteUrl, '/'),
+      email: 'security@aisecurityradar.com',
+    }),
+    renderJsonLd({
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: faqItems.map((item) => ({
+        '@type': 'Question',
+        name: item.question,
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: item.answer,
+        },
+      })),
+    }),
+  ].join('\n');
   const sampleAlertCard = sampleAlert
     ? `<div class="alert-card">
           <div class="severity">${toSafeText(sampleAlert.severity)}</div>
-          <div><strong>${toSafeText(sampleAlert.title)}</strong></div>
+          <div><strong><a class="alert-title-link" href="${toSafeUrl(sampleAlert.incidentUrl, siteUrl)}">${toSafeText(sampleAlert.title)}</a></strong></div>
           <div class="sub">${toSafeText(sampleAlert.summary)}</div>
           <div class="sub">${toSafeText(sampleAlert.remedy)}</div>
           <div class="links">
@@ -229,8 +603,9 @@ export function renderLandingPage(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escapeHtml(appName)}</title>
+  <title>${escapeHtml(`${appName} | AI Security Incident Monitoring for Security Teams`)}</title>
   ${seoSnippet}
+  ${structuredData}
   ${gaSnippet}
   <style>
     :root {
@@ -337,11 +712,20 @@ export function renderLandingPage(
       gap: 14px;
       margin-bottom: 14px;
     }
+    .triple-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-bottom: 14px;
+    }
     .panel {
       background: var(--card);
       border: 1px solid var(--line);
       padding: 16px;
     }
+    .panel p:last-child,
+    .panel ul:last-child,
+    .panel ol:last-child { margin-bottom: 0; }
     h2 { margin: 0 0 10px; font-size: 24px; }
     h3 { margin: 0 0 8px; font-size: 18px; }
     .list { margin: 0; padding-left: 18px; }
@@ -353,6 +737,16 @@ export function renderLandingPage(
       padding: 12px;
       margin-top: 8px;
       font-size: 15px;
+    }
+    .alert-title-link {
+      color: #1a1815;
+      text-decoration: none;
+      border-bottom: 1px solid #d9d2c7;
+    }
+    .alert-title-link:hover,
+    .alert-title-link:focus-visible {
+      color: var(--accent);
+      border-color: var(--accent);
     }
     .severity {
       display: inline-block;
@@ -395,6 +789,57 @@ export function renderLandingPage(
     }
     .links { margin-top: 6px; display: flex; gap: 10px; }
     .links a { color: var(--accent); font-size: 13px; }
+    .register-reasons {
+      margin: 12px 0;
+      border: 1px solid #d9d2c7;
+      background: #f7f3ea;
+      padding: 10px;
+    }
+    .register-reasons h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+    }
+    .register-reasons .list {
+      margin: 0;
+      font-size: 14px;
+    }
+    .faq-panel dt {
+      font-weight: 700;
+      margin-top: 10px;
+    }
+    .faq-panel dd {
+      margin: 4px 0 10px;
+      color: var(--muted);
+      font-size: 15px;
+    }
+    .eyebrow {
+      display: inline-block;
+      margin-bottom: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 12px 0 0;
+    }
+    .pill {
+      border: 1px solid #cdb8b4;
+      background: #fff;
+      padding: 6px 9px;
+      font-size: 13px;
+    }
+    .methodology-note {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+      font-size: 14px;
+      color: var(--muted);
+    }
     .small { font-size: 13px; color: #4d483f; margin-top: 8px; }
     .ok { color: var(--good); }
     .err { color: var(--danger); }
@@ -411,6 +856,7 @@ export function renderLandingPage(
     @media (max-width: 900px) {
       .proof-row { grid-template-columns: 1fr 1fr; }
       .grid { grid-template-columns: 1fr; }
+      .triple-grid { grid-template-columns: 1fr; }
       h1 { font-size: 31px; }
     }
   </style>
@@ -420,39 +866,58 @@ export function renderLandingPage(
     ${renderSiteHeader(appName)}
 
     <section class="hero">
+      <span class="eyebrow">AI Security Incident Monitoring</span>
       <h1>When AI security incidents break, <span class="risk">minutes decide the outcome.</span></h1>
-      <p>Get verified AI threat alerts with immediate remediation actions so your team can contain risk before it turns into a breach or compliance event.</p>
-      <p class="sub">Built for security and risk teams that need faster awareness, better evidence, and clearer response ownership.</p>
+      <p>AI Security Radar helps security, risk, and compliance teams detect AI-specific incidents faster, understand whether the issue truly affects their environment, and move from alert to action with cited remediation guidance.</p>
+      <p class="sub">Instead of relying on generic CVE feeds or broad threat newsletters, the site focuses on AI assistants, copilots, model supply-chain risks, prompt-injection issues, AI-relevant dependencies, and public disclosures that can materially affect AI-enabled products and workflows.</p>
       <div class="hero-cta">
         <a class="btn-cta" id="hero-get-notified" data-cta="hero_get_notified" href="#waitlist-form">Get Notified</a>
-        <a class="btn-ghost" href="/incidents">See Recent Incidents</a>
+        <a class="btn-ghost" href="/incidents">Browse Curated Incidents</a>
+      </div>
+      <div class="pill-row" aria-label="Covered topics">
+        <span class="pill">Prompt Injection</span>
+        <span class="pill">Model Supply Chain</span>
+        <span class="pill">Copilot / Assistant Risk</span>
+        <span class="pill">AI Dependency Advisories</span>
+        <span class="pill">Source-Cited Response Steps</span>
       </div>
     </section>
 
     <section class="proof-row" aria-label="Data sources">
       <div class="proof">Monitors CISA KEV and NVD</div>
-      <div class="proof">Tracks GitHub Advisories and CERT feeds</div>
-      <div class="proof">Source-cited recommendations</div>
-      <div class="proof">Email + Telegram delivery</div>
+      <div class="proof">Tracks GitHub Advisories, CERT, and vendor feeds</div>
+      <div class="proof">Public indexing only for stronger AI-specific pages</div>
+      <div class="proof">Email + Telegram delivery for fast triage</div>
     </section>
 
     <section class="grid">
       <article class="panel">
         <h2>How It Works</h2>
+        <p>Every incident in AI Security Radar starts as source intake, not generated filler. The workflow is designed to reduce false positives before a page or alert becomes public.</p>
         <ol class="list steps">
-          <li>Collects AI-security incident signals from curated high-noise channels and advisories.</li>
-          <li>Triages and scores incident relevance and urgency for security teams.</li>
-          <li>Sends concise alert briefs with impact, remedy checklist, and citations.</li>
+          <li>Collect AI-security signals from curated feeds, advisories, and public disclosures.</li>
+          <li>Score AI relevance so generic software issues do not get mislabeled as AI incidents.</li>
+          <li>Rewrite into operator-friendly summaries with impact, response steps, and citations.</li>
+          <li>Index only the pages that clear public quality thresholds for AI context and content depth.</li>
         </ol>
+        <div class="methodology-note">Read the full process in <a href="/methodology">Methodology &amp; Editorial Policy</a>.</div>
 
-        <h3>Sample Alert</h3>
         ${sampleAlertCard}
       </article>
 
       <form class="panel" id="waitlist-form" method="post" action="/api/waitlist">
         <h2>Request Access</h2>
+        <p class="sub">Register to receive AI incident alerts with source links, practical next steps, and enough context to decide whether you need immediate containment, patching, or stakeholder notification.</p>
         <label for="email">Work Email</label>
         <input id="email" name="email" type="email" required />
+        <section class="register-reasons" aria-label="Why register now">
+          <h3>3 reasons teams register before an incident</h3>
+          <ul class="list">
+            <li><strong>Advisories are fragmented.</strong> Critical exposure data is spread across feeds like CISA KEV, NVD, GHSA, CERT, and vendor bulletins, so one missed source can hide urgent risk.</li>
+            <li><strong>Public disclosure starts the attacker clock.</strong> Once incident details are public, delayed triage can extend attacker dwell time and widen potential blast radius.</li>
+            <li><strong>Compliance reviews require evidence.</strong> Late awareness makes it harder to prove detection and response timelines during audits or post-incident investigations.</li>
+          </ul>
+        </section>
 
         <div class="actions">
           <button type="submit">Get Notified</button>
@@ -471,6 +936,69 @@ export function renderLandingPage(
         </div>
         <p id="status" class="small" aria-live="polite"></p>
       </form>
+    </section>
+
+    <section class="triple-grid" aria-label="Audience and value">
+      <article class="panel">
+        <h2>Who This Is For</h2>
+        <p>Mid-market security engineering, SecOps, and compliance teams that support AI-enabled products but do not have time to manually monitor fragmented advisory channels all day.</p>
+      </article>
+      <article class="panel">
+        <h2>What Counts As AI Security</h2>
+        <p>The focus is not every vulnerability on the internet. The site prioritizes AI assistants, copilots, model artifacts, prompt-layer abuse, model-serving paths, and AI-relevant dependencies that can change enterprise risk posture.</p>
+      </article>
+      <article class="panel">
+        <h2>Why This Page Exists</h2>
+        <p>The goal is to build a trustworthy AI security archive, not a thin pSEO feed. Public pages are meant to stand on their own with enough context to be genuinely useful during incident review.</p>
+      </article>
+    </section>
+
+    <section class="grid">
+      <article class="panel">
+        <h2>What Each Alert Includes</h2>
+        <ul class="list">
+          <li><strong>Incident summary:</strong> what happened, when it was disclosed, and what part of the AI workflow may be exposed.</li>
+          <li><strong>Why it matters:</strong> severity context, likely blast radius, and the teams that should triage first.</li>
+          <li><strong>Immediate response:</strong> focused remediation steps instead of vague "review this advisory" language.</li>
+          <li><strong>Source citations:</strong> direct links back to the advisory or disclosure so analysts can validate quickly.</li>
+        </ul>
+      </article>
+      <article class="panel">
+        <h2>Sources We Monitor</h2>
+        <p>Coverage starts with trusted public sources such as GitHub Security Advisories, NVD, CISA KEV, CERT/EUVD feeds, and selected vendor or research feeds where AI-specific incidents are likely to surface first.</p>
+        <p class="sub">Not every matching keyword becomes a public page. Relevance and quality checks are used to avoid diluting the archive with generic software bulletins that only weakly overlap with AI.</p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Why Teams Use AI Security Radar Instead Of Generic Threat Feeds</h2>
+      <p>Generic vulnerability feeds rarely explain whether a disclosure actually matters to copilots, agent frameworks, model registries, or AI-serving infrastructure. AI Security Radar narrows the field to incidents that intersect AI operations and then adds response framing a security team can use immediately.</p>
+      <ul class="list">
+        <li>Focuses on AI-specific attack paths such as prompt injection, unsafe tool execution, model artifact compromise, and assistant/plugin exposure.</li>
+        <li>Prioritizes decision support for security and compliance teams, not just raw advisory aggregation.</li>
+        <li>Uses a public-indexing threshold so weak or thin pages do not define the site.</li>
+      </ul>
+    </section>
+
+    <section class="panel faq-panel">
+      <h2>What Is AI Security Radar?</h2>
+      <p><strong>AI Security Radar monitors trusted AI-security sources and delivers source-cited alerts with response steps your team can act on quickly.</strong></p>
+      <p>It is designed to answer a practical question: "Does this new public incident affect the AI tools, assistants, or model workflows we actually run, and what should we do first?"</p>
+      <h3>Frequently Asked Questions</h3>
+      <dl>
+        <dt>What do we receive after registering?</dt>
+        <dd>You receive concise incident alerts with severity context, likely impact, and recommended remediation actions.</dd>
+        <dt>How is this different from generic threat feeds?</dt>
+        <dd>Alerts are focused on AI-specific incidents and include direct source references so teams can validate findings fast.</dd>
+        <dt>Who uses these alerts?</dt>
+        <dd>Security, risk, and compliance teams use them to cut triage time and document response decisions.</dd>
+        <dt>What counts as an AI-specific incident here?</dt>
+        <dd>We prioritize issues tied to AI assistants, copilots, LLM workflows, prompt injection, model artifacts, and AI-relevant libraries or services rather than broad software advisories with weak AI overlap.</dd>
+        <dt>How do you decide whether a public incident page should be indexed?</dt>
+        <dd>Pages need clear AI context, enough incident-specific detail to be helpful on their own, and response guidance that is more useful than the upstream advisory alone.</dd>
+        <dt>Where can I review the editorial process?</dt>
+        <dd>The public selection, quality, and correction criteria are documented on the <a href="/methodology">Methodology &amp; Editorial Policy</a> page.</dd>
+      </dl>
     </section>
 
     ${renderSiteFooter()}
@@ -559,37 +1087,82 @@ export function renderLandingPage(
 </html>`;
 }
 
-export function renderIncidentsPage(incidents: IncidentEntry[], siteUrl?: string): string {
-  const cards = incidents
-    .map((item) => {
-      const safeTitle = toSafeText(item.title);
-      const safeSummary = toSafeText(item.summary);
-      const safeIncidentDate = toSafeText(item.incidentDate);
-      const safePublishedDate = toSafeText(item.publishedDate);
-      const safeSlug = encodeURIComponent(item.slug);
-      return `<article style="border:1px solid #ddd6c8;background:#fffdf9;padding:16px;margin-bottom:12px;">
+export function renderIncidentsPage(incidents: IncidentEntry[], meta: IncidentsPageMeta): string {
+  const canonicalPath = incidentsPagePath(meta.currentPage);
+  const cards =
+    incidents.length > 0
+      ? incidents
+          .map((item) => {
+            const safeTitle = toSafeText(item.title);
+            const safeSummary = toSafeText(trimToSentence(item.summary, 240));
+            const safeIncidentDate = toSafeText(item.incidentDate);
+            const safePublishedDate = toSafeText(item.publishedDate);
+            const safeSlug = encodeURIComponent(item.slug);
+            return `<article style="border:1px solid #ddd6c8;background:#fffdf9;padding:16px;margin-bottom:12px;">
         <h2 style="margin:0 0 8px;font-size:24px;"><a href="/incidents/${safeSlug}" style="color:#1a1815;text-decoration:none;">${safeTitle}</a></h2>
         <p style="margin:0 0 8px;font-size:14px;color:#5f584f;">Incident date: ${safeIncidentDate} | Published: ${safePublishedDate}</p>
         <p style="margin:0 0 8px;">${safeSummary}</p>
         <p style="margin:0;"><a href="/incidents/${safeSlug}" style="color:#135d7a;">Read details</a></p>
       </article>`;
-    })
-    .join('');
+          })
+          .join('')
+      : '<article style="border:1px solid #ddd6c8;background:#fffdf9;padding:16px;margin-bottom:12px;"><p style="margin:0;">No published incidents yet. Check back after the next verified publication.</p></article>';
   const seoSnippet = renderSeoMeta({
-    title: 'Recent AI Security Incidents | AI Security Radar',
-    description: 'Chronological AI security incidents with impact summaries, source citations, and remediation guidance.',
-    canonicalPath: '/incidents',
-    siteUrl,
+    title:
+      meta.currentPage > 1
+        ? `Recent AI Security Incidents - Page ${meta.currentPage} | AI Security Radar`
+        : 'Recent AI Security Incidents | AI Security Radar',
+    description:
+      'Chronological AI security incidents with AI-specific context, source citations, impact summaries, and remediation guidance for security teams.',
+    canonicalPath,
+    siteUrl: meta.siteUrl,
     type: 'website',
   });
+  const paginationLinkTags = renderPaginationLinkTags(meta.prevPagePath, meta.nextPagePath, meta.siteUrl);
+  const listJsonLd = renderJsonLd({
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: 'Recent AI Security Incidents',
+    url: absoluteUrl(meta.siteUrl, canonicalPath),
+    mainEntity: {
+      '@type': 'ItemList',
+      numberOfItems: meta.totalIncidents,
+      itemListOrder: 'https://schema.org/ItemListOrderDescending',
+      itemListElement: incidents.map((item, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        name: item.title,
+        url: absoluteUrl(meta.siteUrl, `/incidents/${encodeURIComponent(item.slug)}`),
+      })),
+    },
+  });
+  const paginationNav =
+    meta.totalPages > 1
+      ? `<nav class="paging" aria-label="Incident pages">
+        ${meta.prevPagePath ? `<a class="page-btn" href="${meta.prevPagePath}" rel="prev">Previous</a>` : '<span class="page-btn disabled" aria-disabled="true">Previous</span>'}
+        <div class="page-numbers">
+          ${Array.from({ length: meta.totalPages }, (_, idx) => {
+            const page = idx + 1;
+            const href = incidentsPagePath(page);
+            if (page === meta.currentPage) {
+              return `<span class="page-btn current" aria-current="page">${page}</span>`;
+            }
+            return `<a class="page-btn" href="${href}">${page}</a>`;
+          }).join('')}
+        </div>
+        ${meta.nextPagePath ? `<a class="page-btn" href="${meta.nextPagePath}" rel="next">Next</a>` : '<span class="page-btn disabled" aria-disabled="true">Next</span>'}
+      </nav>`
+      : '';
 
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Recent AI Security Incidents</title>
+  <title>${meta.currentPage > 1 ? `Recent AI Security Incidents - Page ${meta.currentPage}` : 'Recent AI Security Incidents'}</title>
   ${seoSnippet}
+  ${paginationLinkTags}
+  ${listJsonLd}
   <style>
     body { font-family: Georgia, "Times New Roman", serif; margin: 0; background:#f7f5ef; color:#1c1915; }
     .wrap { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; }
@@ -602,6 +1175,37 @@ export function renderIncidentsPage(incidents: IncidentEntry[], siteUrl?: string
     .cta-nav { background:#135d7a; border-color:#135d7a; color:#fff; font-weight:700; }
     h1 { margin-top: 0; }
     .back { margin-bottom: 14px; display:inline-block; color:#135d7a; }
+    .paging {
+      margin-top: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .page-numbers {
+      display: inline-flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .page-btn {
+      border: 1px solid #d9d2c7;
+      background: #fff;
+      color: #1c1915;
+      text-decoration: none;
+      padding: 6px 10px;
+      font-size: 14px;
+    }
+    .page-btn.current {
+      background: #135d7a;
+      border-color: #135d7a;
+      color: #fff;
+      font-weight: 700;
+    }
+    .page-btn.disabled {
+      color: #7a746b;
+      background: #f0ece4;
+      border-color: #ddd6c8;
+    }
     .site-footer {
       border-top: 1px solid #d9d2c7;
       margin-top: 18px;
@@ -621,8 +1225,13 @@ export function renderIncidentsPage(incidents: IncidentEntry[], siteUrl?: string
     ${renderSiteHeader()}
     <a class="back" href="/">Back to homepage</a>
     <h1>Recent AI Security Incidents</h1>
-    <p>Curated incidents with impact and remediation notes.</p>
+    <p>This archive includes only the public incident pages that currently clear AI relevance and content-quality thresholds. Page ${meta.currentPage} of ${meta.totalPages}.</p>
+    <div style="border:1px solid #ddd6c8;background:#fffdf9;padding:16px;margin-bottom:12px;">
+      <p style="margin:0 0 8px;">Each page is intended to help a security team answer three questions quickly: why the issue is AI-relevant, what part of the workflow may be exposed, and what actions should happen first.</p>
+      <p style="margin:0;">Selection criteria and correction policy are documented in <a href="/methodology">Methodology &amp; Editorial Policy</a>.</p>
+    </div>
     ${cards}
+    ${paginationNav}
     ${renderSiteFooter()}
   </main>
 </body>
@@ -634,11 +1243,20 @@ export function renderIncidentDetailPage(
   allIncidents: IncidentEntry[],
   siteUrl?: string
 ): string {
+  const assessment = assessIncidentQuality(incident);
+  const analysis = classifyIncident(`${incident.sourceTitle ?? incident.title} ${incident.summary} ${incident.impact}`);
+  const aiRelevanceSummary = buildAiRelevanceSummary(incident, assessment.aiSignals);
   const safeTitle = toSafeText(incident.title);
   const safeIncidentDate = toSafeText(incident.incidentDate);
   const safePublishedDate = toSafeText(incident.publishedDate);
   const safeSummary = toSafeText(incident.summary);
   const safeImpact = toSafeText(incident.impact);
+  const safeAiRelevanceSummary = toSafeText(aiRelevanceSummary);
+  const safeAffectedSurface = toSafeText(analysis.affectedSurface);
+  const safeAttackPath = toSafeText(analysis.attackPath);
+  const safeBusinessImpact = toSafeText(analysis.businessImpact);
+  const safeSourceKind = toSafeText(humanizeSourceKind(incident.sourceKind));
+  const safeConfidence = toSafeText(formatConfidence(incident.confidence));
   const baseSourceUrl = incident.sources[0]?.url;
   const imageUrls = extractImageUrls(`${incident.summary}\n${incident.impact}`, baseSourceUrl);
   const imageCards = imageUrls
@@ -647,6 +1265,10 @@ export function renderIncidentDetailPage(
     )
     .join('');
   const remedies = incident.remedy.map((step) => `<li>${toSafeText(step)}</li>`).join('');
+  const detectionSignals = analysis.detectionSignals.map((step) => `<li>${toSafeText(step)}</li>`).join('');
+  const aiSignals = assessment.aiSignals.length > 0
+    ? assessment.aiSignals.map((signal) => `<li>${toSafeText(signal)}</li>`).join('')
+    : '<li>AI-specific evidence is currently weak, so this page remains excluded from search indexing.</li>';
   const sourceLinks = incident.sources
     .map((source) => {
       const href = toSafeUrl(source.url, baseSourceUrl);
@@ -654,10 +1276,13 @@ export function renderIncidentDetailPage(
     })
     .join('');
   const otherItems = allIncidents
-    .filter((item) => item.slug !== incident.slug)
+    .filter((item) => item.slug !== incident.slug && item.indexable !== false)
     .slice(0, 3)
     .map((item) => `<li><a href="/incidents/${encodeURIComponent(item.slug)}">${toSafeText(item.title)}</a></li>`)
     .join('');
+  const coverageNote = incident.indexable === false
+    ? 'This incident page is available for operator review, but it is excluded from search indexing until AI-specific relevance and page depth are stronger.'
+    : 'This incident currently meets the public indexing threshold for AI-specific context, incident detail, and source-backed usefulness.';
   const seoDescription = trimToSentence(
     normalizeWhitespace(stripHtmlTags(incident.summary)) || 'AI security incident summary and response guidance.',
     260
@@ -668,8 +1293,30 @@ export function renderIncidentDetailPage(
     canonicalPath: `/incidents/${incident.slug}`,
     siteUrl,
     type: 'article',
+    noindex: incident.indexable === false,
   });
   const incidentUrl = absoluteUrl(siteUrl, `/incidents/${incident.slug}`);
+  const isoDate = (() => {
+    const candidate = incident.sortDate ?? '';
+    const parsed = Date.parse(candidate);
+    if (Number.isNaN(parsed)) {
+      return undefined;
+    }
+    return new Date(parsed).toISOString();
+  })();
+  const articleJsonLdObject: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    '@type': 'NewsArticle',
+    headline: incident.title,
+    description: seoDescription,
+    url: incidentUrl,
+    mainEntityOfPage: incidentUrl,
+  };
+  if (isoDate) {
+    articleJsonLdObject.datePublished = isoDate;
+    articleJsonLdObject.dateModified = isoDate;
+  }
+  const articleJsonLd = renderJsonLd(articleJsonLdObject);
   const shareText = encodeURIComponent(`AI security incident: ${incident.title}`);
   const shareUrl = encodeURIComponent(incidentUrl);
   const shareX = `https://twitter.com/intent/tweet?text=${shareText}&url=${shareUrl}`;
@@ -682,6 +1329,7 @@ export function renderIncidentDetailPage(
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${safeTitle}</title>
   ${seoSnippet}
+  ${articleJsonLd}
   <style>
     body { font-family: Georgia, "Times New Roman", serif; margin: 0; background:#f7f5ef; color:#1c1915; }
     .wrap { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; }
@@ -721,6 +1369,22 @@ export function renderIncidentDetailPage(
     }
     .incident-cta-title { margin: 0 0 8px; font-size: 20px; }
     .incident-cta-text { margin: 0 0 10px; font-size: 16px; }
+    .coverage-note {
+      margin: 14px 0;
+      border: 1px solid #d9d2c7;
+      background: #f1efe9;
+      padding: 12px;
+      font-size: 15px;
+    }
+    .detail-section {
+      margin-top: 18px;
+      padding-top: 14px;
+      border-top: 1px solid #e3ddd1;
+    }
+    .detail-section h2 {
+      margin: 0 0 8px;
+      font-size: 22px;
+    }
     .incident-cta-btn {
       display: inline-block;
       background: #135d7a;
@@ -750,15 +1414,43 @@ export function renderIncidentDetailPage(
     <p><a href="/incidents">Back to incidents</a></p>
     <article>
       <h1>${safeTitle}</h1>
-      <p class="meta">Incident date: ${safeIncidentDate} | Published: ${safePublishedDate}</p>
+      <p class="meta">Incident date: ${safeIncidentDate} | Published: ${safePublishedDate} | Source: ${safeSourceKind} | Classification confidence: ${safeConfidence}</p>
+      <div class="coverage-note">${toSafeText(coverageNote)} <a href="/methodology">Review methodology</a>.</div>
       <p>${safeSummary}</p>
       ${imageCards}
-      <h2>Impact</h2>
-      <p>${safeImpact}</p>
-      <h2>Recommended Response</h2>
-      <ul>${remedies}</ul>
-      <h2>Sources</h2>
-      <ul>${sourceLinks}</ul>
+      <section class="detail-section">
+        <h2>Why This Is AI-Related</h2>
+        <p>${safeAiRelevanceSummary}</p>
+        <ul>${aiSignals}</ul>
+      </section>
+      <section class="detail-section">
+        <h2>Affected Workflow</h2>
+        <p>${safeAffectedSurface}</p>
+      </section>
+      <section class="detail-section">
+        <h2>Likely Attack Path</h2>
+        <p>${safeAttackPath}</p>
+      </section>
+      <section class="detail-section">
+        <h2>Impact</h2>
+        <p>${safeImpact}</p>
+      </section>
+      <section class="detail-section">
+        <h2>Detection And Triage Signals</h2>
+        <ul>${detectionSignals}</ul>
+      </section>
+      <section class="detail-section">
+        <h2>Recommended Response</h2>
+        <ul>${remedies}</ul>
+      </section>
+      <section class="detail-section">
+        <h2>Compliance And Business Impact</h2>
+        <p>${safeBusinessImpact}</p>
+      </section>
+      <section class="detail-section">
+        <h2>Sources</h2>
+        <ul>${sourceLinks}</ul>
+      </section>
       <section class="share-cta">
         <h3 style="margin:0 0 8px;">Share this incident</h3>
         <div class="share-buttons">
@@ -774,7 +1466,7 @@ export function renderIncidentDetailPage(
     </article>
     <section style="margin-top:14px;">
       <h3>More incidents</h3>
-      <ul>${otherItems}</ul>
+      <ul>${otherItems || '<li><a href="/incidents">Browse the incident archive</a></li>'}</ul>
     </section>
     ${renderSiteFooter()}
   </main>
@@ -782,10 +1474,17 @@ export function renderIncidentDetailPage(
 </html>`;
 }
 
-function renderPolicyShell(title: string, body: string, canonicalPath: string, siteUrl?: string): string {
+function renderPolicyShell(
+  title: string,
+  body: string,
+  canonicalPath: string,
+  siteUrl?: string,
+  description?: string
+): string {
+  const safeTitle = escapeHtml(title);
   const seoSnippet = renderSeoMeta({
     title: `${title} | AI Security Radar`,
-    description: `${title} for AI Security Radar.`,
+    description: description ?? `${title} for AI Security Radar.`,
     canonicalPath,
     siteUrl,
     type: 'website',
@@ -795,7 +1494,7 @@ function renderPolicyShell(title: string, body: string, canonicalPath: string, s
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${title} - AI Security Radar</title>
+  <title>${safeTitle} - AI Security Radar</title>
   ${seoSnippet}
   <style>
     body { font-family: Georgia, "Times New Roman", serif; margin: 0; background: #f7f5ef; color: #1c1915; }
@@ -830,7 +1529,7 @@ function renderPolicyShell(title: string, body: string, canonicalPath: string, s
   <main class="wrap">
     ${renderSiteHeader()}
     <article>
-      <h1>${title}</h1>
+      <h1>${safeTitle}</h1>
       ${body}
       <p><a href="/">Back to homepage</a></p>
     </article>
@@ -863,6 +1562,37 @@ export function renderPrivacyPage(siteUrl?: string): string {
     `,
     '/privacy',
     siteUrl
+  );
+}
+
+export function renderMethodologyPage(siteUrl?: string): string {
+  return renderPolicyShell(
+    'Methodology & Editorial Policy',
+    `
+    <p>Last updated: March 7, 2026</p>
+    <p>AI Security Radar is designed to publish fewer, more useful AI security pages rather than a thin archive of loosely related advisories. This page explains how incident selection, public indexing, and page quality decisions are made.</p>
+    <h2>What We Monitor</h2>
+    <ul>
+      <li>Trusted public advisories such as GitHub Security Advisories, NVD, CISA KEV, CERT, EUVD, and selected vendor feeds.</li>
+      <li>AI-specific signals including copilots, assistants, LLM workflows, model artifacts, prompt injection, and AI-relevant dependencies.</li>
+      <li>Source material that helps operators validate exposure quickly instead of relying on rewritten summaries alone.</li>
+    </ul>
+    <h2>What Counts As AI-Relevant</h2>
+    <p>We do not intentionally label every software advisory as an AI incident. Public pages are meant to stay focused on issues that affect AI applications, assistants, models, agent workflows, or supporting components commonly used in AI delivery.</p>
+    <h2>When A Page Can Be Indexed</h2>
+    <ul>
+      <li>The source material must contain clear AI-specific context.</li>
+      <li>The page must include a substantive summary and incident-specific detail that is useful on its own.</li>
+      <li>Pages with weak AI overlap or thin content may remain publicly accessible for operator review but are marked <code>noindex</code> and excluded from the sitemap.</li>
+    </ul>
+    <h2>How Public Incident Pages Are Written</h2>
+    <p>Source material is normalized, summarized, and then structured into sections that explain likely impact, affected workflows, detection signals, and first-response actions. Where deterministic fallbacks are used, they are designed to stay practical and avoid inflated claims.</p>
+    <h2>Corrections And Removals</h2>
+    <p>If a page is later found to have weak AI relevance, duplicate coverage, or insufficient detail, it may be updated, removed from the sitemap, or excluded from indexing. Correction requests can be sent to security@aisecurityradar.com.</p>
+    `,
+    '/methodology',
+    siteUrl,
+    'Methodology, editorial policy, and public indexing criteria for AI Security Radar incident pages.'
   );
 }
 

@@ -6,6 +6,6 @@ const app = createApp();
 export default {
   fetch: app.fetch,
   async scheduled(_controller: ScheduledController, env: EnvBindings, ctx: ExecutionContext) {
-    ctx.waitUntil(runIngestionPipeline(env));
+    ctx.waitUntil(runIngestionPipeline(env, fetch, { mode: 'cron', runId: `cron-${Date.now()}` }));
   },
 };

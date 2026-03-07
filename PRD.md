@@ -198,6 +198,7 @@ Teams need a single low-cost service that detects relevant AI security incidents
 - Require minimum confidence threshold for instant alerts.
 - Low-confidence items move to digest or review queue.
 - Every remediation must carry at least one source citation.
+- Public incident pages require clear AI-specific context plus substantive page detail; weakly related pages may remain accessible for operator review but are excluded from sitemap/indexing until improved.
 
 ## 10. Cost and Infrastructure Plan
 ### Cost Principles
@@ -288,3 +289,4 @@ Teams need a single low-cost service that detects relevant AI security incidents
 - [2026-02-14] Added implementation default: GPT-5 mini optional layer for semantic dedupe and published-incident enrichment, with budget caps and fallback to deterministic pipeline when LLM is unavailable.
 - [2026-02-25] ghsa-advisory-parsing-normalization-hotfix: Added summary normalization safeguards (source ingestion + render caps), GHSA summary-first parsing, and admin long-summary cleanup endpoint for legacy incident content.
 - [2026-02-25] reapply-homepage-friction: Removed homepage risk checkbox gate again and restored email-first waitlist flow with optional interests.
+- [2026-03-07] seo-content-enhancement-plan: Added public indexing quality gate guidance, methodology page requirement, stricter AI relevance matching, and sitemap exclusion behavior for weak AI-overlap incident pages.

@@ -70,6 +70,8 @@ function makeSummaryNormalizationDb() {
 }
 
 function makeLandingSampleDb(row: {
+  draft_id?: number;
+  slug?: string | null;
   headline?: string | null;
   title: string;
   summary: string | null;
@@ -77,21 +79,48 @@ function makeLandingSampleDb(row: {
   url: string;
   source: string;
   severity: string | null;
+  confidence?: number | null;
 }) {
   return {
     prepare(sql: string) {
       const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
-      if (!compactSql.includes('from draft_posts d') || !compactSql.includes('limit 1')) {
+      if (!compactSql.includes('from draft_posts d') || !compactSql.includes('join ingested_events e')) {
         throw new Error(`Unexpected SQL: ${sql}`);
       }
       return {
-        first: async () => row,
+        all: async () => ({
+          results: [
+            {
+              draft_id: row.draft_id ?? 99,
+              slug: row.slug ?? 'ghsa-sample',
+              headline: row.headline ?? row.title,
+              published_at: '2026-02-25T00:00:00.000Z',
+              created_at: '2026-02-25T00:00:00.000Z',
+              title: row.title,
+              summary: row.summary,
+              url: row.url,
+              source: row.source,
+              severity: row.severity,
+              confidence: row.confidence ?? 0.86,
+              event_published_at: '2026-02-24T00:00:00.000Z',
+              enriched_summary: row.enriched_summary,
+              enriched_impact: null,
+              enriched_remedy_json: null,
+            },
+          ],
+        }),
       };
     },
   } as unknown as D1Database;
 }
 
-function makeIncidentDetailDb(summary: string) {
+function makeIncidentDetailDb(input: {
+  title?: string;
+  summary: string;
+  source?: string;
+  severity?: string;
+  confidence?: number;
+}) {
   return {
     prepare(sql: string) {
       const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -104,15 +133,15 @@ function makeIncidentDetailDb(summary: string) {
             {
               draft_id: 1,
               slug: 'sample-incident',
-              headline: 'Sample Incident Headline',
+              headline: input.title ?? 'Sample Incident Headline',
               published_at: '2026-02-25T00:00:00.000Z',
               created_at: '2026-02-25T00:00:00.000Z',
-              title: 'Sample Incident Headline',
-              summary,
+              title: input.title ?? 'Sample Incident Headline',
+              summary: input.summary,
               url: 'https://example.com/advisory',
-              source: 'ghsa',
-              severity: 'high',
-              confidence: 0.91,
+              source: input.source ?? 'ghsa',
+              severity: input.severity ?? 'high',
+              confidence: input.confidence ?? 0.91,
               event_published_at: '2026-02-24T00:00:00.000Z',
               enriched_summary: null,
               enriched_impact: null,
@@ -120,6 +149,94 @@ function makeIncidentDetailDb(summary: string) {
             },
           ],
         }),
+      };
+    },
+  } as unknown as D1Database;
+}
+
+function makePublishedIncidentsDb(count: number) {
+  const rows = Array.from({ length: count }, (_, index) => {
+    const id = index + 1;
+    const iso = new Date(Date.UTC(2026, 1, id, 0, 0, 0)).toISOString();
+    return {
+      draft_id: id,
+      slug: `incident-${id}`,
+      headline: `AI security incident: LangChain prompt injection exposure ${id}`,
+      published_at: iso,
+      created_at: iso,
+      title: `LangChain prompt injection exposure ${id}`,
+      summary: `Security researchers disclosed prompt injection and data exfiltration risk in a large language model workflow used by enterprise teams for incident ${id}.`,
+      url: `https://example.com/advisory/${id}`,
+      source: 'ghsa',
+      severity: 'medium',
+      confidence: 0.82,
+      event_published_at: iso,
+      enriched_summary: null,
+      enriched_impact: null,
+      enriched_remedy_json: null,
+    };
+  });
+
+  return {
+    prepare(sql: string) {
+      const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
+      if (!compactSql.includes('from draft_posts d') || !compactSql.includes('join ingested_events e')) {
+        throw new Error(`Unexpected SQL: ${sql}`);
+      }
+      return {
+        all: async () => ({ results: rows }),
+      };
+    },
+  } as unknown as D1Database;
+}
+
+function makeMixedPublishedIncidentsDb() {
+  const rows = [
+    {
+      draft_id: 1,
+      slug: 'indexable-incident',
+      headline: 'AI security incident: GitHub Copilot CLI shell expansion exposure',
+      published_at: '2026-02-25T00:00:00.000Z',
+      created_at: '2026-02-25T00:00:00.000Z',
+      title: 'GitHub Copilot CLI shell expansion exposure',
+      summary:
+        'Researchers disclosed arbitrary code execution risk in GitHub Copilot CLI through shell expansion behavior, creating enterprise exposure for assistant-driven automation.',
+      url: 'https://example.com/advisory/indexable',
+      source: 'ghsa',
+      severity: 'high',
+      confidence: 0.87,
+      event_published_at: '2026-02-25T00:00:00.000Z',
+      enriched_summary: null,
+      enriched_impact: null,
+      enriched_remedy_json: null,
+    },
+    {
+      draft_id: 2,
+      slug: 'weak-incident',
+      headline: 'AI security incident: Generic package overwrite issue',
+      published_at: '2026-02-24T00:00:00.000Z',
+      created_at: '2026-02-24T00:00:00.000Z',
+      title: 'Generic package overwrite issue',
+      summary: 'Overwritable package objects allow malicious attackers to replace content.',
+      url: 'https://example.com/advisory/weak',
+      source: 'ghsa',
+      severity: 'high',
+      confidence: 0.45,
+      event_published_at: '2026-02-24T00:00:00.000Z',
+      enriched_summary: null,
+      enriched_impact: null,
+      enriched_remedy_json: null,
+    },
+  ];
+
+  return {
+    prepare(sql: string) {
+      const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
+      if (!compactSql.includes('from draft_posts d') || !compactSql.includes('join ingested_events e')) {
+        throw new Error(`Unexpected SQL: ${sql}`);
+      }
+      return {
+        all: async () => ({ results: rows }),
       };
     },
   } as unknown as D1Database;
@@ -145,6 +262,13 @@ describe('waitlist endpoint', () => {
     expect(html).toContain('property="og:title"');
     expect(html).toContain('name="twitter:card"');
     expect(html).toContain('rel="canonical"');
+    expect(html).toContain('3 reasons teams register before an incident');
+    expect(html).toContain('What Is AI Security Radar?');
+    expect(html).toContain('What Counts As AI Security');
+    expect(html).toContain('Methodology &amp; Editorial Policy');
+    expect(html).toContain('Why Teams Use AI Security Radar Instead Of Generic Threat Feeds');
+    expect(html).toContain('"@type":"FAQPage"');
+    expect(html).toContain('"@type":"Organization"');
     expect(res.headers.get('x-content-type-options')).toBe('nosniff');
     expect(res.headers.get('x-frame-options')).toBe('DENY');
     expect(res.headers.get('content-security-policy')).toContain("default-src 'self'");
@@ -153,12 +277,14 @@ describe('waitlist endpoint', () => {
 
   test('renders bounded, markdown-cleaned sample risk text on homepage', async () => {
     const app = createApp();
-    const longMarkdownSummary = `## Impact\n\`\`\`bash\ncat payload\n\`\`\`\nAttackers can bypass model trust boundaries and execute unsafe operations. ${'detail '.repeat(180)}`;
+    const longMarkdownSummary = `## Impact\n\`\`\`bash\ncat payload\n\`\`\`\nAttackers can bypass large language model trust boundaries and execute unsafe operations in a Copilot workflow. ${'detail '.repeat(180)}`;
     const env = {
       ...makeEnv(),
       DB: makeLandingSampleDb({
-        headline: 'GHSA sample',
-        title: 'GHSA sample',
+        draft_id: 99,
+        slug: 'ghsa-sample',
+        headline: 'AI security incident: Copilot workflow prompt injection sample',
+        title: 'Copilot workflow prompt injection sample',
         summary: longMarkdownSummary,
         enriched_summary: null,
         url: 'https://example.com/advisory',
@@ -175,14 +301,19 @@ describe('waitlist endpoint', () => {
     expect(html).not.toContain('## Impact');
     const riskSnippet = html.match(/Risk:[^<]+/)?.[0] ?? '';
     expect(riskSnippet.length).toBeLessThanOrEqual(300);
+    expect(html).toContain('href="http://localhost/incidents/ghsa-sample"');
+    expect(html).not.toContain('<h3>Sample Alert</h3>');
   });
 
   test('bounds and cleans incident SEO description from long legacy summaries', async () => {
     const app = createApp();
-    const longSummary = `## Advisory\n\`\`\`python\nprint("poc")\n\`\`\`\nAttackers can abuse model deserialization and bypass policy checks. ${'note '.repeat(220)}`;
+    const longSummary = `## Advisory\n\`\`\`python\nprint("poc")\n\`\`\`\nAttackers can abuse large language model deserialization and bypass policy checks. ${'note '.repeat(220)}`;
     const env = {
       ...makeEnv(),
-      DB: makeIncidentDetailDb(longSummary),
+      DB: makeIncidentDetailDb({
+        title: 'Fickling large language model deserialization bypass',
+        summary: longSummary,
+      }),
     };
 
     const res = await app.request('http://localhost/incidents/sample-incident', undefined, env);
@@ -195,6 +326,24 @@ describe('waitlist endpoint', () => {
     expect(metaDescription).not.toContain('##');
   });
 
+  test('marks weakly related incident pages as noindex', async () => {
+    const app = createApp();
+    const env = {
+      ...makeEnv(),
+      DB: makeIncidentDetailDb({
+        title: 'Generic package overwrite issue',
+        summary: 'Overwritable package objects allow malicious attackers to replace content.',
+        confidence: 0.45,
+      }),
+    };
+
+    const res = await app.request('http://localhost/incidents/sample-incident', undefined, env);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('content="noindex, nofollow"');
+    expect(html).toContain('excluded from search indexing');
+  });
+
   test('renders legal pages', async () => {
     const app = createApp();
     const privacy = await app.request('http://localhost/privacy', undefined, makeEnv());
@@ -204,6 +353,15 @@ describe('waitlist endpoint', () => {
     expect(privacy.status).toBe(200);
     expect(terms.status).toBe(200);
     expect(security.status).toBe(200);
+  });
+
+  test('renders methodology page', async () => {
+    const app = createApp();
+    const res = await app.request('http://localhost/methodology', undefined, makeEnv());
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('Methodology &amp; Editorial Policy');
+    expect(html).toContain('When A Page Can Be Indexed');
   });
 
   test('renders admin ops page', async () => {
@@ -224,6 +382,31 @@ describe('waitlist endpoint', () => {
     const html = await res.text();
     expect(html).toContain('Validation Metrics');
     expect(html).toContain('Load Metrics');
+  });
+
+  test('renders SEO-friendly incidents pagination routes', async () => {
+    const app = createApp();
+    const env = { ...makeEnv(), DB: makePublishedIncidentsDb(13) };
+
+    const page1 = await app.request('http://localhost/incidents', undefined, env);
+    expect(page1.status).toBe(200);
+    const html1 = await page1.text();
+    expect(html1).toContain('Page 1 of 2');
+    expect(html1).toContain('href="/incidents/page/2"');
+    expect(html1).toContain('rel="next"');
+    expect(html1).toContain('href="http://localhost/incidents"');
+
+    const page2 = await app.request('http://localhost/incidents/page/2', undefined, env);
+    expect(page2.status).toBe(200);
+    const html2 = await page2.text();
+    expect(html2).toContain('Page 2 of 2');
+    expect(html2).toContain('href="/incidents"');
+    expect(html2).toContain('rel="prev"');
+    expect(html2).toContain('href="http://localhost/incidents/page/2"');
+
+    const queryPage = await app.request('http://localhost/incidents?page=2', undefined, env);
+    expect(queryPage.status).toBe(301);
+    expect(queryPage.headers.get('location')).toBe('/incidents/page/2');
   });
 
   test('renders incidents pages', async () => {
@@ -250,11 +433,45 @@ describe('waitlist endpoint', () => {
     const sitemapText = await sitemap.text();
     expect(sitemapText).toContain('<urlset');
     expect(sitemapText).toContain('https://aisecurityradar.com/incidents');
+    expect(sitemapText).toContain('https://aisecurityradar.com/methodology');
 
     expect(robots.status).toBe(200);
     const robotsText = await robots.text();
     expect(robotsText).toContain('Sitemap: https://aisecurityradar.com/sitemap.xml');
     expect(robotsText).toContain('Disallow: /admin');
+  });
+
+  test('includes paginated incident index pages in sitemap', async () => {
+    const app = createApp();
+    const env = {
+      ...makeEnv(),
+      SITE_URL: 'https://aisecurityradar.com',
+      DB: makePublishedIncidentsDb(13),
+    };
+    const sitemap = await app.request('http://localhost/sitemap.xml', undefined, env);
+    expect(sitemap.status).toBe(200);
+    const text = await sitemap.text();
+    expect(text).toContain('https://aisecurityradar.com/incidents/page/2');
+  });
+
+  test('excludes weak incident pages from sitemap and incident listing', async () => {
+    const app = createApp();
+    const env = {
+      ...makeEnv(),
+      SITE_URL: 'https://aisecurityradar.com',
+      DB: makeMixedPublishedIncidentsDb(),
+    };
+    const sitemap = await app.request('http://localhost/sitemap.xml', undefined, env);
+    expect(sitemap.status).toBe(200);
+    const sitemapText = await sitemap.text();
+    expect(sitemapText).toContain('https://aisecurityradar.com/incidents/indexable-incident');
+    expect(sitemapText).not.toContain('https://aisecurityradar.com/incidents/weak-incident');
+
+    const list = await app.request('http://localhost/incidents', undefined, env);
+    expect(list.status).toBe(200);
+    const listHtml = await list.text();
+    expect(listHtml).toContain('indexable-incident');
+    expect(listHtml).not.toContain('weak-incident');
   });
 
   test('rejects unauthorized admin access', async () => {
@@ -284,6 +501,24 @@ describe('waitlist endpoint', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { ok: boolean; result: { errors: string[] } };
     expect(body.ok).toBe(true);
+    expect(body.result.errors).toContain('DB not configured');
+  });
+
+  test('supports cron-safe mode on admin ingestion endpoint', async () => {
+    const app = createApp();
+    const env = { APP_NAME: 'Test App', ADMIN_API_TOKEN: 'top-secret-token' };
+    const res = await app.request(
+      'http://localhost/api/admin/ingestion/run?mode=cron-safe',
+      {
+        method: 'POST',
+        headers: { Authorization: 'Bearer top-secret-token' },
+      },
+      env
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; result: { mode: string; errors: string[] } };
+    expect(body.ok).toBe(true);
+    expect(body.result.mode).toBe('cron');
     expect(body.result.errors).toContain('DB not configured');
   });
 

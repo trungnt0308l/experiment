@@ -2,12 +2,15 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import {
+  assessIncidentQuality,
+  type IncidentEntry,
   type LandingSampleAlert,
   renderAdminMetricsPage,
   renderAdminOpsPage,
   renderIncidentDetailPage,
   renderIncidentsPage,
   renderLandingPage,
+  renderMethodologyPage,
   renderPrivacyPage,
   renderSecurityPage,
   renderTermsPage,
@@ -32,8 +35,19 @@ export type EnvBindings = {
   RSS_FEEDS?: string;
   MAX_EVENT_AGE_DAYS?: string;
   ENABLE_HN_SOURCE?: string;
+  INGEST_CRON_MAX_RUNTIME_MS?: string;
+  INGEST_CRON_MAX_PROCESS_EVENTS?: string;
+  INGEST_CRON_MAX_DB_WRITES?: string;
+  INGEST_CRON_FETCH_TIMEOUT_MS?: string;
+  INGEST_CRON_DISABLE_LLM_DEDUPE?: string;
+  INGEST_CISA_MAX_ITEMS_PER_RUN?: string;
+  INGEST_EUVD_MAX_ITEMS_PER_RUN?: string;
+  INGEST_GHSA_MAX_ITEMS_PER_RUN?: string;
+  INGEST_RSS_MAX_ITEMS_PER_FEED?: string;
+  INGEST_NVD_RESULTS_PER_KEYWORD?: string;
   AUTO_PUBLISH_TRUSTED_SOURCES?: string;
   AUTO_PUBLISH_MIN_SEVERITY?: string;
+  AUTO_PUBLISH_MIN_CONFIDENCE?: string;
   ADMIN_API_TOKEN?: string;
   RESEND_API_KEY?: string;
   NOTIFY_EMAIL_TO?: string;
@@ -83,23 +97,6 @@ type MetricsSourceRow = {
   count: number;
 };
 
-type IncidentSource = {
-  label: string;
-  url: string;
-};
-
-type IncidentEntry = {
-  slug: string;
-  title: string;
-  sortDate: string;
-  incidentDate: string;
-  publishedDate: string;
-  summary: string;
-  impact: string;
-  remedy: string[];
-  sources: IncidentSource[];
-};
-
 type PublishedIncidentRow = {
   draft_id: number;
   slug: string;
@@ -118,18 +115,9 @@ type PublishedIncidentRow = {
   enriched_remedy_json: string | null;
 };
 
-type LatestPublishedSampleRow = {
-  headline: string | null;
-  title: string;
-  summary: string | null;
-  enriched_summary: string | null;
-  url: string;
-  source: string;
-  severity: string | null;
-};
-
-const INCIDENT_SUMMARY_MAX_CHARS = 420;
+const INCIDENT_SUMMARY_MAX_CHARS = 760;
 const LANDING_SAMPLE_SUMMARY_MAX_CHARS = 260;
+const INCIDENTS_PER_PAGE = 10;
 
 function toSourceKind(value: string): 'hn' | 'nvd' | 'rss' | 'ghsa' | 'cisa_kev' | 'euvd' {
   if (value === 'hn' || value === 'nvd' || value === 'rss' || value === 'ghsa' || value === 'cisa_kev' || value === 'euvd') {
@@ -198,6 +186,210 @@ function getSiteUrl(c: Context<{ Bindings: EnvBindings }>): string {
   return new URL(c.req.url).origin.replace(/\/+$/, '');
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function containsTerm(text: string, term: string): boolean {
+  const pattern = term
+    .trim()
+    .split(/\s+/)
+    .map((part) => escapeRegExp(part))
+    .join('\\s+');
+  return new RegExp(`(^|[^a-z0-9])${pattern}(?=$|[^a-z0-9])`, 'i').test(text);
+}
+
+function classifyIncidentTheme(title: string, summary: string): 'prompt_injection' | 'code_execution' | 'artifact' | 'data_exposure' | 'identity' | 'availability' | 'generic' {
+  const haystack = `${title} ${summary}`.toLowerCase();
+  if (containsTerm(haystack, 'prompt injection') || containsTerm(haystack, 'jailbreak')) {
+    return 'prompt_injection';
+  }
+  if (
+    containsTerm(haystack, 'remote code execution') ||
+    containsTerm(haystack, 'arbitrary code execution') ||
+    containsTerm(haystack, 'command injection') ||
+    containsTerm(haystack, 'rce')
+  ) {
+    return 'code_execution';
+  }
+  if (
+    containsTerm(haystack, 'pickle') ||
+    containsTerm(haystack, 'deserialization') ||
+    containsTerm(haystack, 'model weights')
+  ) {
+    return 'artifact';
+  }
+  if (
+    containsTerm(haystack, 'ssrf') ||
+    containsTerm(haystack, 'exfiltration') ||
+    containsTerm(haystack, 'data leak') ||
+    containsTerm(haystack, 'file disclosure')
+  ) {
+    return 'data_exposure';
+  }
+  if (
+    containsTerm(haystack, 'authentication bypass') ||
+    containsTerm(haystack, 'authorization bypass') ||
+    containsTerm(haystack, 'account takeover') ||
+    containsTerm(haystack, 'privilege escalation')
+  ) {
+    return 'identity';
+  }
+  if (containsTerm(haystack, 'denial of service') || containsTerm(haystack, 'dos')) {
+    return 'availability';
+  }
+  return 'generic';
+}
+
+function buildFallbackIncidentImpact(
+  title: string,
+  summary: string,
+  source: string,
+  severity: 'low' | 'medium' | 'high',
+  confidence: number | null
+): string {
+  const theme = classifyIncidentTheme(title, summary);
+  const confidenceLabel = typeof confidence === 'number' ? `${Math.round(confidence * 100)}%` : 'unscored';
+  const sourceLabel = source.toUpperCase();
+
+  const detail =
+    theme === 'prompt_injection'
+      ? 'The weakness can let untrusted prompts or tool instructions bypass intended guardrails and trigger unsafe downstream actions or data access.'
+      : theme === 'code_execution'
+        ? 'The issue can create a path to command execution inside an AI-facing product, plugin, copilot, or supporting service runtime.'
+        : theme === 'artifact'
+          ? 'The advisory affects model artifacts or serialized AI assets, which can bypass inspection or execute during load and validation steps.'
+          : theme === 'data_exposure'
+            ? 'The flaw can expose internal data, local files, or connected systems through AI workflow connectors and supporting services.'
+            : theme === 'identity'
+              ? 'The issue can weaken identity or authorization boundaries around AI features, plugins, or operator workflows.'
+              : theme === 'availability'
+                ? 'The advisory describes an availability or resource-exhaustion path that can disrupt AI-serving components and supporting automation.'
+                : 'The advisory has meaningful security implications for an AI-related product, dependency, or workflow and should be triaged against deployed usage.';
+
+  return trimToSentence(
+    `${detail} Severity ${severity.toUpperCase()}. Classification confidence ${confidenceLabel}. Source channel ${sourceLabel}.`,
+    420
+  );
+}
+
+function buildFallbackIncidentRemedy(title: string, summary: string): string[] {
+  const theme = classifyIncidentTheme(title, summary);
+
+  if (theme === 'prompt_injection') {
+    return [
+      'Review prompt templates, tool-invocation rules, and system instructions for the affected workflow.',
+      'Restrict sensitive tools, retrieval scopes, and outbound actions until guardrails are validated.',
+      'Search logs for prompt override attempts, unusual tool chains, and sensitive data exposure after user input.',
+    ];
+  }
+  if (theme === 'code_execution') {
+    return [
+      'Identify every environment that runs the affected AI plugin, assistant, CLI, or supporting package.',
+      'Patch or isolate the vulnerable component and remove risky execution permissions while validation is in progress.',
+      'Review process execution, outbound connections, and file-write logs for signs of post-exploitation activity.',
+    ];
+  }
+  if (theme === 'artifact') {
+    return [
+      'Inventory model artifacts, serialized objects, and scanners that touch the affected package or workflow.',
+      'Block untrusted model files and revalidate registry, CI, or notebook loading paths before restoring normal operation.',
+      'Review artifact provenance, scanner output, and recent model-ingestion activity for suspicious changes.',
+    ];
+  }
+  if (theme === 'data_exposure') {
+    return [
+      'Confirm whether the affected component can reach internal metadata, local files, or connected data stores.',
+      'Restrict outbound requests and sensitive data access paths until a patch or mitigation is in place.',
+      'Inspect logs for unusual downloads, webhook calls, retrieval requests, or responses containing internal content.',
+    ];
+  }
+  if (theme === 'identity') {
+    return [
+      'Audit the affected AI workflow for exposed admin actions, service tokens, and user-to-tool permissions.',
+      'Rotate or disable sensitive credentials if the issue could weaken authentication or authorization boundaries.',
+      'Review access logs for unusual account actions, scope changes, or integrations created after disclosure.',
+    ];
+  }
+  if (theme === 'availability') {
+    return [
+      'Identify inference endpoints, parsing jobs, or queues that rely on the affected component.',
+      'Apply vendor mitigations and add rate, size, or input controls to reduce exhaustion risk during triage.',
+      'Monitor latency, restart frequency, queue backlog, and saturation indicators for active disruption.',
+    ];
+  }
+
+  return [
+    'Confirm whether affected products, models, or integrations are used in your environment.',
+    'Apply vendor fixes or mitigations and restrict risky permissions until verified.',
+    'Monitor logs for related indicators and document containment for audit evidence.',
+  ];
+}
+
+function toIncidentEntry(row: PublishedIncidentRow): IncidentEntry {
+  const sortDate = toSortDate(row.event_published_at ?? row.published_at, row.created_at);
+  const title = row.headline || row.title;
+  const rawSummary = collapsePlainText(row.enriched_summary ?? row.summary ?? row.title) ||
+    collapsePlainText(row.title) ||
+    'AI security incident requiring review.';
+  const summary = trimToSentence(rawSummary, INCIDENT_SUMMARY_MAX_CHARS);
+  const severity = (row.severity ?? 'medium').toLowerCase() as 'low' | 'medium' | 'high';
+  const incidentDate = formatDate(row.event_published_at ?? row.published_at ?? row.created_at);
+  const publishedDate = formatDate(row.published_at ?? row.created_at);
+  const slug = row.slug || `${slugify(title)}-${row.draft_id}`;
+  const enrichedRemedy = parseRemedyJson(row.enriched_remedy_json);
+  const impactSource = collapsePlainText(row.enriched_impact ?? '').trim();
+  const impact = impactSource
+    ? trimToSentence(impactSource, 420)
+    : buildFallbackIncidentImpact(row.title, row.summary ?? row.title, row.source, severity, row.confidence);
+  const remedy = enrichedRemedy.length >= 3 ? enrichedRemedy : buildFallbackIncidentRemedy(row.title, row.summary ?? row.title);
+
+  const incident: IncidentEntry = {
+    slug,
+    title,
+    sourceTitle: row.title,
+    sortDate,
+    incidentDate,
+    publishedDate,
+    summary,
+    impact,
+    remedy,
+    sources: [{ label: `${row.source.toUpperCase()} source`, url: row.url }],
+    sourceKind: toSourceKind(row.source),
+    severity,
+    confidence: row.confidence,
+  };
+  const quality = assessIncidentQuality(incident);
+  return {
+    ...incident,
+    indexable: quality.indexable,
+    qualityReasons: quality.reasons,
+  };
+}
+
+function getIndexableIncidents(items: IncidentEntry[]): IncidentEntry[] {
+  return items.filter((item) => item.indexable !== false);
+}
+
+function toLandingSample(incident: IncidentEntry | undefined, siteUrl: string): LandingSampleAlert | undefined {
+  if (!incident || incident.sources[0]?.url === undefined) {
+    return undefined;
+  }
+
+  const severity = (incident.severity ?? 'medium').toLowerCase();
+  const severityLabel = severity === 'high' ? 'High Severity' : severity === 'low' ? 'Low Severity' : 'Medium Severity';
+  const riskSummary = trimToSentence(collapsePlainText(incident.summary), LANDING_SAMPLE_SUMMARY_MAX_CHARS);
+  return {
+    title: incident.title,
+    incidentUrl: `${siteUrl}/incidents/${encodeURIComponent(incident.slug)}`,
+    severity: severityLabel,
+    summary: `Risk: ${riskSummary}`,
+    remedy: trimToSentence(incident.remedy[0] ?? 'Validate exposure scope, apply mitigations, and review related telemetry immediately.', 170),
+    sourceLabel: incident.sources[0].label,
+    sourceUrl: incident.sources[0].url,
+  };
+}
+
 async function fetchPublishedDbIncidents(db: D1Database | undefined): Promise<IncidentEntry[]> {
   if (!db) {
     return [];
@@ -230,38 +422,7 @@ async function fetchPublishedDbIncidents(db: D1Database | undefined): Promise<In
     .all<PublishedIncidentRow>();
 
   const rows = result.results ?? [];
-  return rows.map((row) => {
-    const sortDate = toSortDate(row.event_published_at ?? row.published_at, row.created_at);
-    const title = row.headline || row.title;
-    const summary = trimToSentence(
-      collapsePlainText(row.enriched_summary ?? row.summary ?? row.title) ||
-        collapsePlainText(row.title) ||
-        'AI security incident requiring review.',
-      INCIDENT_SUMMARY_MAX_CHARS
-    );
-    const severity = (row.severity ?? 'medium').toUpperCase();
-    const confidence = row.confidence ? `${Math.round(row.confidence * 100)}%` : 'N/A';
-    const incidentDate = formatDate(row.event_published_at ?? row.published_at ?? row.created_at);
-    const publishedDate = formatDate(row.published_at ?? row.created_at);
-    const slug = row.slug || `${slugify(title)}-${row.draft_id}`;
-    const enrichedRemedy = parseRemedyJson(row.enriched_remedy_json);
-    const fallbackRemedy = [
-      'Validate whether your organization uses the affected AI tool, model, or integration path.',
-      'Apply vendor patches or mitigations and restrict risky permissions until validated.',
-      'Monitor logs for related indicators and document containment actions for compliance evidence.',
-    ];
-    return {
-      slug,
-      title,
-      sortDate,
-      incidentDate,
-      publishedDate,
-      summary,
-      impact: row.enriched_impact ?? `Severity ${severity}. Confidence ${confidence}. Source channel: ${row.source.toUpperCase()}.`,
-      remedy: enrichedRemedy.length >= 3 ? enrichedRemedy : fallbackRemedy,
-      sources: [{ label: `${row.source.toUpperCase()} source`, url: row.url }],
-    };
-  });
+  return rows.map(toIncidentEntry);
 }
 
 async function listIncidents(db: D1Database | undefined): Promise<IncidentEntry[]> {
@@ -269,49 +430,22 @@ async function listIncidents(db: D1Database | undefined): Promise<IncidentEntry[
   return getSortedIncidents(published);
 }
 
-async function fetchLatestLandingSample(db: D1Database | undefined): Promise<LandingSampleAlert | undefined> {
-  if (!db) {
-    return undefined;
+function parsePageNumber(raw: string | undefined): number | null {
+  if (!raw) {
+    return 1;
   }
-
-  const row = await db
-    .prepare(
-      `SELECT
-         d.headline,
-         e.title,
-         e.summary,
-         d.enriched_summary,
-         e.url,
-         e.source,
-         e.severity
-       FROM draft_posts d
-       JOIN ingested_events e ON e.id = d.event_id
-       WHERE d.status = 'published'
-       ORDER BY datetime(COALESCE(e.published_at, d.published_at, d.created_at)) DESC
-       LIMIT 1`
-    )
-    .first<LatestPublishedSampleRow>();
-
-  if (!row?.title || !row.url) {
-    return undefined;
+  if (!/^[1-9]\d*$/.test(raw)) {
+    return null;
   }
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
 
-  const severity = (row.severity ?? 'medium').toLowerCase();
-  const severityLabel = severity === 'high' ? 'High Severity' : severity === 'low' ? 'Low Severity' : 'Medium Severity';
-  const riskSummary = trimToSentence(
-    collapsePlainText(row.enriched_summary?.trim() || row.summary?.trim() || '') ||
-      'Potential AI security exposure requiring triage and validation.',
-    LANDING_SAMPLE_SUMMARY_MAX_CHARS
-  );
-
-  return {
-    title: row.headline ?? row.title,
-    severity: severityLabel,
-    summary: `Risk: ${riskSummary}`,
-    remedy: 'Immediate action: validate exposure scope, apply mitigations/patches, and monitor for related indicators.',
-    sourceLabel: `${row.source.toUpperCase()} source`,
-    sourceUrl: row.url,
-  };
+function incidentsPagePath(page: number): string {
+  return page <= 1 ? '/incidents' : `/incidents/page/${page}`;
 }
 
 type DraftEventForEnrichment = {
@@ -361,21 +495,13 @@ function fallbackEnrichment(row: DraftEventForEnrichment): {
   remedy: string[];
   model: string;
 } {
-  const severity = (row.severity ?? 'medium').toLowerCase();
-  const conf = typeof row.confidence === 'number' ? `${Math.round(row.confidence * 100)}%` : 'N/A';
+  const severity = (row.severity ?? 'medium').toLowerCase() as 'low' | 'medium' | 'high';
   const summary = trimToSentence(
     collapsePlainText(row.summary ?? row.title) || collapsePlainText(row.title) || 'AI security incident requiring review.',
     700
   );
-  const impact = trimToSentence(
-    `Severity ${severity.toUpperCase()} with confidence ${conf}. Validate exposure quickly to reduce security and compliance risk.`,
-    320
-  );
-  const remedy = [
-    'Confirm whether affected products, models, or integrations are used in your environment.',
-    'Apply vendor fixes or mitigations and restrict risky permissions until verified.',
-    'Monitor logs for related indicators and document containment for audit evidence.',
-  ];
+  const impact = buildFallbackIncidentImpact(row.title, row.summary ?? row.title, row.source, severity, row.confidence);
+  const remedy = buildFallbackIncidentRemedy(row.title, row.summary ?? row.title);
   return { summary, impact, remedy, model: 'fallback-v1' };
 }
 
@@ -810,15 +936,59 @@ export function createApp() {
   app.get('/health', (c) => c.json({ ok: true }));
 
   app.get('/', async (c) => {
-    const sample = await fetchLatestLandingSample(c.env.DB);
+    const siteUrl = getSiteUrl(c);
+    const incidents = await listIncidents(c.env.DB);
+    const sample = toLandingSample(getIndexableIncidents(incidents)[0], siteUrl);
     const appName = c.env.APP_NAME ?? 'AI Security Incident Radar';
-    return c.html(renderLandingPage(appName, c.env.GA_MEASUREMENT_ID, sample, getSiteUrl(c)));
+    return c.html(renderLandingPage(appName, c.env.GA_MEASUREMENT_ID, sample, siteUrl));
   });
 
+  const renderIncidentsListing = async (c: Context<{ Bindings: EnvBindings }>, requestedPage: number) => {
+    const incidents = getIndexableIncidents(await listIncidents(c.env.DB));
+    const totalPages = Math.max(1, Math.ceil(incidents.length / INCIDENTS_PER_PAGE));
+    if (requestedPage > totalPages) {
+      return c.text('Incident page not found', 404);
+    }
+
+    const start = (requestedPage - 1) * INCIDENTS_PER_PAGE;
+    const pageIncidents = incidents.slice(start, start + INCIDENTS_PER_PAGE);
+    const prevPagePath = requestedPage > 1 ? incidentsPagePath(requestedPage - 1) : undefined;
+    const nextPagePath = requestedPage < totalPages ? incidentsPagePath(requestedPage + 1) : undefined;
+    return c.html(
+      renderIncidentsPage(pageIncidents, {
+        currentPage: requestedPage,
+        totalPages,
+        totalIncidents: incidents.length,
+        prevPagePath,
+        nextPagePath,
+        siteUrl: getSiteUrl(c),
+      })
+    );
+  };
+
   app.get('/incidents', async (c) => {
-    const incidents = await listIncidents(c.env.DB);
-    return c.html(renderIncidentsPage(incidents, getSiteUrl(c)));
+    const queryPage = c.req.query('page');
+    if (queryPage && queryPage !== '1') {
+      const parsedPage = parsePageNumber(queryPage);
+      if (!parsedPage) {
+        return c.text('Invalid page number', 404);
+      }
+      return c.redirect(incidentsPagePath(parsedPage), 301);
+    }
+    return renderIncidentsListing(c, 1);
   });
+
+  app.get('/incidents/page/:page', async (c) => {
+    const parsedPage = parsePageNumber(c.req.param('page'));
+    if (!parsedPage) {
+      return c.text('Invalid page number', 404);
+    }
+    if (parsedPage === 1) {
+      return c.redirect('/incidents', 301);
+    }
+    return renderIncidentsListing(c, parsedPage);
+  });
+
   app.get('/incidents/:slug', async (c) => {
     const slug = c.req.param('slug');
     const incidents = await listIncidents(c.env.DB);
@@ -832,6 +1002,7 @@ export function createApp() {
   app.get('/privacy', (c) => c.html(renderPrivacyPage(getSiteUrl(c))));
   app.get('/terms', (c) => c.html(renderTermsPage(getSiteUrl(c))));
   app.get('/security', (c) => c.html(renderSecurityPage(getSiteUrl(c))));
+  app.get('/methodology', (c) => c.html(renderMethodologyPage(getSiteUrl(c))));
   app.get('/admin/ops', (c) => c.html(renderAdminOpsPage(getSiteUrl(c))));
   app.get('/admin/metrics', (c) => c.html(renderAdminMetricsPage(getSiteUrl(c))));
 
@@ -853,22 +1024,31 @@ export function createApp() {
 
   app.get('/sitemap.xml', async (c) => {
     const siteUrl = getSiteUrl(c);
-    const incidents = await listIncidents(c.env.DB);
+    const incidents = getIndexableIncidents(await listIncidents(c.env.DB));
     const nowIso = new Date().toISOString();
+    const newestIncidentDate = incidents[0]?.sortDate;
+    const parsedNewestIncidentDate = newestIncidentDate ? Date.parse(newestIncidentDate) : Number.NaN;
+    const incidentsLastmod = Number.isNaN(parsedNewestIncidentDate) ? nowIso : new Date(parsedNewestIncidentDate).toISOString();
+    const incidentListPages = Math.max(1, Math.ceil(incidents.length / INCIDENTS_PER_PAGE));
     const staticUrls: Array<{ path: string; lastmod: string }> = [
       { path: '/', lastmod: nowIso },
-      { path: '/incidents', lastmod: nowIso },
+      { path: '/incidents', lastmod: incidentsLastmod },
+      { path: '/methodology', lastmod: nowIso },
       { path: '/privacy', lastmod: nowIso },
       { path: '/terms', lastmod: nowIso },
       { path: '/security', lastmod: nowIso },
     ];
+    const incidentsPaginationUrls = Array.from({ length: Math.max(0, incidentListPages - 1) }, (_, index) => ({
+      path: `/incidents/page/${index + 2}`,
+      lastmod: incidentsLastmod,
+    }));
     const incidentUrls = incidents.map((incident) => {
       const parsedSort = Date.parse(incident.sortDate);
       const incidentLastmod = Number.isNaN(parsedSort) ? nowIso : new Date(parsedSort).toISOString();
       return { path: `/incidents/${incident.slug}`, lastmod: incidentLastmod };
     });
 
-    const allUrls = [...staticUrls, ...incidentUrls];
+    const allUrls = [...staticUrls, ...incidentsPaginationUrls, ...incidentUrls];
     const entries = allUrls
       .map(
         (item) => `  <url>
@@ -1021,8 +1201,10 @@ ${entries}
       return c.json({ ok: false, error: 'Unauthorized' }, 401);
     }
 
+    const mode = c.req.query('mode') === 'cron-safe' ? 'cron' : 'manual';
+
     try {
-      const result = await runIngestionPipeline(c.env);
+      const result = await runIngestionPipeline(c.env, fetch, { mode, runId: `admin-${Date.now()}` });
       c.header('cache-control', 'no-store, max-age=0');
       c.header('pragma', 'no-cache');
       return c.json({ ok: true, result });

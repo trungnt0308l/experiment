@@ -51,3 +51,15 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: UI lacked summary preview/truncation for high-verbosity source entries.
 - **Fix applied**: Added preview truncation and optional details expansion for full content; preserved access without overwhelming layout.
 - **Rule going forward**: Any operational review list should default to compact previews with explicit expand controls for verbose fields.
+
+## [2026-02-28] cron-resource-hardening: Runtime cap floor mismatch with intended budget controls
+- **What went wrong**: New cron budget tests failed because hard minimum clamp values prevented low explicit budget settings from taking effect.
+- **Root cause**: I introduced conservative lower bounds without reconciling them with required strict-mode behavior and test scenarios.
+- **Fix applied**: Reduced cron clamp minimums for runtime/process/write budgets, then updated assertions and re-ran full typecheck/tests.
+- **Rule going forward**: When adding budget clamps, validate that minimums still permit operational/debug configurations and include tests that exercise those boundary values.
+
+## [2026-03-07] seo-content-enhancement-plan: Shared UI type hardening broke test fixtures
+- **What went wrong**: Typecheck failed after tightening the shared `IncidentEntry` shape because an existing UI test fixture no longer satisfied the now-required `sortDate` field.
+- **Root cause**: I changed a shared type used by both app code and isolated rendering tests without updating the dependent fixture at the same time.
+- **Fix applied**: Added the missing field to the UI security fixture and re-ran `npm run typecheck` plus the full test suite.
+- **Rule going forward**: When strengthening shared TypeScript types, immediately search all tests and helper fixtures that instantiate that type before running verification.

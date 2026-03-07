@@ -285,6 +285,15 @@ describe('ingestion helpers', () => {
     expect(scoreIncidentRelevance('New AI model release', 'Great benchmark results', 'hn')).toBe(0);
   });
 
+  test('does not treat words like malicious as an AI signal', () => {
+    const relevant = isLikelyAiSecurityIncident(
+      'Package overwrite issue',
+      'Malicious attackers can replace package content and tamper with releases.',
+      'ghsa'
+    );
+    expect(relevant).toBe(false);
+  });
+
   test('rejects HN noise posts even with weak security wording', () => {
     const relevant = isLikelyAiSecurityIncident(
       'Show HN: AI security benchmark dashboard',
@@ -402,8 +411,16 @@ describe('ingestion helpers', () => {
       env,
       createFetchStub({
         nvd: [
-          { id: 'CVE-2026-1001', published: '2026-02-10T00:00:00.000Z', summary: 'AI model exploit vulnerability' },
-          { id: 'CVE-2026-1002', published: '2026-02-11T00:00:00.000Z', summary: 'Prompt injection in AI workflow' },
+          {
+            id: 'CVE-2026-1001',
+            published: '2026-02-10T00:00:00.000Z',
+            summary: 'Prompt injection vulnerability in a large language model workflow',
+          },
+          {
+            id: 'CVE-2026-1002',
+            published: '2026-02-11T00:00:00.000Z',
+            summary: 'Machine learning pipeline exploit with prompt injection path',
+          },
         ],
       }),
       { mode: 'cron', runId: 'cron-budget-test' }
@@ -419,7 +436,13 @@ describe('ingestion helpers', () => {
   test('stops on runtime budget', async () => {
     const fixture = createPipelineDbFixture();
     const baseFetch = createFetchStub({
-      nvd: [{ id: 'CVE-2026-2001', published: '2026-02-12T00:00:00.000Z', summary: 'AI model compromise vulnerability' }],
+      nvd: [
+        {
+          id: 'CVE-2026-2001',
+          published: '2026-02-12T00:00:00.000Z',
+          summary: 'Prompt injection compromise vulnerability in a large language model workflow',
+        },
+      ],
     });
     const slowFetch = (async (request: RequestInfo | URL, init?: RequestInit) => {
       await new Promise((resolve) => setTimeout(resolve, 8));
@@ -493,8 +516,8 @@ describe('ingestion helpers', () => {
         ghsa: [
           {
             ghsa_id: 'GHSA-xxxx-yyyy-zzzz',
-            summary: 'AI plugin vulnerability in model dependency',
-            description: 'Security advisory for an AI workflow package update.',
+            summary: 'LangChain prompt injection vulnerability in LLM dependency',
+            description: 'Security advisory for a LangChain package used in large language model workflows.',
             html_url: 'https://github.com/advisories/GHSA-xxxx-yyyy-zzzz',
             published_at: '2026-02-20T00:00:00.000Z',
             severity: 'high',
@@ -557,9 +580,9 @@ describe('ingestion helpers', () => {
       {
         source: 'ghsa',
         externalId: 'GHSA-xxxx-yyyy-zzzz',
-        title: 'Model dependency vulnerability',
+        title: 'LangChain prompt injection vulnerability',
         url: 'https://github.com/advisories/GHSA-xxxx-yyyy-zzzz',
-        summary: 'Security advisory for AI workflow package.',
+        summary: 'Security advisory for a large language model workflow package.',
         publishedAt: '2026-02-14T00:00:00.000Z',
         severity: 'high',
         confidence: 0.9,
@@ -575,9 +598,9 @@ describe('ingestion helpers', () => {
       {
         source: 'rss',
         externalId: 'rss-security-1',
-        title: 'Critical AI security bulletin',
+        title: 'Critical LLM security bulletin',
         url: 'https://example.com/security/rss-1',
-        summary: 'Critical issue with exploit path in AI deployment.',
+        summary: 'Critical issue with exploit path in a large language model deployment.',
         publishedAt: '2026-02-14T00:00:00.000Z',
         severity: 'high',
         confidence: 0.88,
@@ -612,6 +635,22 @@ describe('ingestion helpers', () => {
     };
     expect(shouldAutoPublish(event, {})).toBe(false);
     expect(shouldAutoPublish(event, { AUTO_PUBLISH_MIN_SEVERITY: 'medium' })).toBe(true);
+  });
+
+  test('does not auto-publish high severity incidents below confidence threshold', () => {
+    const event = {
+      source: 'ghsa' as const,
+      externalId: 'GHSA-low-confidence',
+      title: 'LangChain prompt injection vulnerability',
+      url: 'https://github.com/advisories/GHSA-low-confidence',
+      summary: 'Security advisory for a large language model workflow package.',
+      publishedAt: '2026-02-14T00:00:00.000Z',
+      severity: 'high' as const,
+      confidence: 0.6,
+      fingerprint: 'low-confidence',
+    };
+    expect(shouldAutoPublish(event, {})).toBe(false);
+    expect(shouldAutoPublish(event, { AUTO_PUBLISH_MIN_CONFIDENCE: '0.5' })).toBe(true);
   });
 
   test('applies safe runtime cap defaults and clamps', () => {
