@@ -1,4 +1,4 @@
-## PR Review — restore-full-incident-archive
+## PR Review - restore-full-incident-archive
 
 ### Summary
 Restores all published incidents to the public archive, sitemap, and default search indexation path while updating public copy to match the new behavior.
@@ -9,7 +9,7 @@ Restores all published incidents to the public archive, sitemap, and default sea
 - [x] No leftover console.log/print/debugger statements
 - [x] Error handling is comprehensive
 - [x] Edge cases handled
-- [x] No code duplication — utilities extracted
+- [x] No code duplication - utilities extracted
 - [x] DB queries efficient (no N+1)
 - [x] API inputs validated and sanitized
 - [x] UI accessible (aria, keyboard nav, contrast)

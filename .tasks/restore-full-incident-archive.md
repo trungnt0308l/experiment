@@ -5,18 +5,18 @@
 - **Branch**: fix/restore-full-incident-archive
 - **PR**: PR not created locally; compare URL https://github.com/trungnt0308l/experiment/pull/new/fix/restore-full-incident-archive
 - **Created**: 2026-03-07T12:01:21.9101555+07:00
-- **Last Updated**: 2026-03-07T12:08:14.5708145+07:00
+- **Last Updated**: 2026-03-07T12:09:40.1402589+07:00
 
 ## Objective
 Restore public visibility for all published incidents by showing them in the incidents archive, indexing every incident page, and keeping every published incident in the sitemap.
 
 ## Plan
-- [x] Step 1 — Create task branch and task tracking file
-- [x] Step 2 — Inspect current archive, sitemap, and robots filtering logic
-- [x] Step 3 — Patch app and UI rendering to restore all published incidents publicly
-- [x] Step 4 — Write and update tests for restored behavior
-- [x] Step 5 — Verification
-- [x] Step 6 — PR self-review
+- [x] Step 1 - Create task branch and task tracking file
+- [x] Step 2 - Inspect current archive, sitemap, and robots filtering logic
+- [x] Step 3 - Patch app and UI rendering to restore all published incidents publicly
+- [x] Step 4 - Write and update tests for restored behavior
+- [x] Step 5 - Verification
+- [x] Step 6 - PR self-review
 
 ## Progress Log
 - [2026-03-07T12:01:21.9101555+07:00] Started task. Checked out branch `fix/restore-full-incident-archive`.
@@ -25,8 +25,8 @@ Restore public visibility for all published incidents by showing them in the inc
 - [2026-03-07T12:06:16.0871670+07:00] Updated `PRD.md` to reflect the restored public archive/indexation policy.
 - [2026-03-07T12:06:16.0871670+07:00] Verification completed with `npm run typecheck`, `npm run test`, and an in-memory manual render check confirming archive inclusion, `index, follow`, and sitemap inclusion for a weak incident slug.
 - [2026-03-07T12:06:16.0871670+07:00] Completed PR self-review in `.tasks/restore-full-incident-archive-review.md`; no blocking issues found.
-- [2026-03-07T12:08:14.5708145+07:00] Committed changes as `fix(restore-full-incident-archive): restore public incident indexing` (`1d31622`) and pushed branch `fix/restore-full-incident-archive` to `origin`.
-- [2026-03-07T12:08:14.5708145+07:00] `gh` is not installed in this environment, so the branch was pushed but the PR itself was not created locally.
+- [2026-03-07T12:09:40.1402589+07:00] Committed changes as `fix(restore-full-incident-archive): restore public incident indexing` (`1d31622`) and pushed branch `fix/restore-full-incident-archive` to `origin`.
+- [2026-03-07T12:09:40.1402589+07:00] `gh` is not installed in this environment, so the branch was pushed but the PR itself was not created locally.
 
 ## Verification Checklist
 - [x] All acceptance criteria met
