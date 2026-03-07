@@ -326,7 +326,7 @@ describe('waitlist endpoint', () => {
     expect(metaDescription).not.toContain('##');
   });
 
-  test('marks weakly related incident pages as noindex', async () => {
+  test('keeps published incident pages indexable even when AI signals are weak', async () => {
     const app = createApp();
     const env = {
       ...makeEnv(),
@@ -340,8 +340,10 @@ describe('waitlist endpoint', () => {
     const res = await app.request('http://localhost/incidents/sample-incident', undefined, env);
     expect(res.status).toBe(200);
     const html = await res.text();
-    expect(html).toContain('content="noindex, nofollow"');
-    expect(html).toContain('excluded from search indexing');
+    expect(html).toContain('content="index, follow"');
+    expect(html).toContain('This incident is part of the public archive.');
+    expect(html).not.toContain('content="noindex, nofollow"');
+    expect(html).not.toContain('excluded from search indexing');
   });
 
   test('renders legal pages', async () => {
@@ -361,7 +363,7 @@ describe('waitlist endpoint', () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain('Methodology &amp; Editorial Policy');
-    expect(html).toContain('When A Page Can Be Indexed');
+    expect(html).toContain('How Published Pages Are Indexed');
   });
 
   test('renders admin ops page', async () => {
@@ -454,7 +456,7 @@ describe('waitlist endpoint', () => {
     expect(text).toContain('https://aisecurityradar.com/incidents/page/2');
   });
 
-  test('excludes weak incident pages from sitemap and incident listing', async () => {
+  test('includes all published incident pages in sitemap and incident listing', async () => {
     const app = createApp();
     const env = {
       ...makeEnv(),
@@ -465,13 +467,13 @@ describe('waitlist endpoint', () => {
     expect(sitemap.status).toBe(200);
     const sitemapText = await sitemap.text();
     expect(sitemapText).toContain('https://aisecurityradar.com/incidents/indexable-incident');
-    expect(sitemapText).not.toContain('https://aisecurityradar.com/incidents/weak-incident');
+    expect(sitemapText).toContain('https://aisecurityradar.com/incidents/weak-incident');
 
     const list = await app.request('http://localhost/incidents', undefined, env);
     expect(list.status).toBe(200);
     const listHtml = await list.text();
     expect(listHtml).toContain('indexable-incident');
-    expect(listHtml).not.toContain('weak-incident');
+    expect(listHtml).toContain('weak-incident');
   });
 
   test('rejects unauthorized admin access', async () => {

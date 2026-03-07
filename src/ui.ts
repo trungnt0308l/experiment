@@ -429,7 +429,7 @@ function buildAiRelevanceSummary(incident: IncidentEntry, aiSignals: string[]): 
     const labels = aiSignals.slice(0, 3).join(', ');
     return `This page is treated as AI-specific because the source material references ${labels}, which places the issue inside an AI workflow, model, assistant, or supporting dependency rather than a generic software bulletin.`;
   }
-  return `This advisory is available for operator review, but its AI relevance is currently weak, so the page is excluded from search indexing until stronger AI-specific evidence is added.`;
+  return `This advisory is part of the public incident archive, but the current source material uses limited explicit AI terminology, so the cited sources should be reviewed carefully when judging AI relevance and exposure.`;
 }
 
 function escapeAttr(value: string): string {
@@ -550,9 +550,9 @@ export function renderLandingPage(
         'We focus on incidents tied to AI assistants, copilots, LLM workflows, model artifacts, prompt injection, and AI-relevant dependencies rather than generic software advisories with weak AI overlap.',
     },
     {
-      question: 'What has to be true before a public incident page is indexed?',
+      question: 'Are all published incident pages indexable?',
       answer:
-        'A page needs clear AI-specific context, a substantive summary, and enough incident detail to be useful on its own. Thin or weakly related pages remain available for operator review but are excluded from search indexing.',
+        'Yes. Once an incident page is published, it remains indexable and stays in the sitemap. We handle quality issues through updates and corrections instead of search exclusion.',
     },
   ];
   const structuredData = [
@@ -886,7 +886,7 @@ export function renderLandingPage(
     <section class="proof-row" aria-label="Data sources">
       <div class="proof">Monitors CISA KEV and NVD</div>
       <div class="proof">Tracks GitHub Advisories, CERT, and vendor feeds</div>
-      <div class="proof">Public indexing only for stronger AI-specific pages</div>
+      <div class="proof">All published incidents stay in the public archive</div>
       <div class="proof">Email + Telegram delivery for fast triage</div>
     </section>
 
@@ -898,7 +898,7 @@ export function renderLandingPage(
           <li>Collect AI-security signals from curated feeds, advisories, and public disclosures.</li>
           <li>Score AI relevance so generic software issues do not get mislabeled as AI incidents.</li>
           <li>Rewrite into operator-friendly summaries with impact, response steps, and citations.</li>
-          <li>Index only the pages that clear public quality thresholds for AI context and content depth.</li>
+          <li>Publish each incident into a searchable archive with source links and operator-focused context.</li>
         </ol>
         <div class="methodology-note">Read the full process in <a href="/methodology">Methodology &amp; Editorial Policy</a>.</div>
 
@@ -966,7 +966,7 @@ export function renderLandingPage(
       <article class="panel">
         <h2>Sources We Monitor</h2>
         <p>Coverage starts with trusted public sources such as GitHub Security Advisories, NVD, CISA KEV, CERT/EUVD feeds, and selected vendor or research feeds where AI-specific incidents are likely to surface first.</p>
-        <p class="sub">Not every matching keyword becomes a public page. Relevance and quality checks are used to avoid diluting the archive with generic software bulletins that only weakly overlap with AI.</p>
+        <p class="sub">Relevance and quality checks are still used to prioritize corrections and editorial improvements, but every published incident remains visible in the public archive for review.</p>
       </article>
     </section>
 
@@ -976,7 +976,7 @@ export function renderLandingPage(
       <ul class="list">
         <li>Focuses on AI-specific attack paths such as prompt injection, unsafe tool execution, model artifact compromise, and assistant/plugin exposure.</li>
         <li>Prioritizes decision support for security and compliance teams, not just raw advisory aggregation.</li>
-        <li>Uses a public-indexing threshold so weak or thin pages do not define the site.</li>
+        <li>Keeps published pages searchable and source-cited so teams can review the full incident record over time.</li>
       </ul>
     </section>
 
@@ -994,8 +994,8 @@ export function renderLandingPage(
         <dd>Security, risk, and compliance teams use them to cut triage time and document response decisions.</dd>
         <dt>What counts as an AI-specific incident here?</dt>
         <dd>We prioritize issues tied to AI assistants, copilots, LLM workflows, prompt injection, model artifacts, and AI-relevant libraries or services rather than broad software advisories with weak AI overlap.</dd>
-        <dt>How do you decide whether a public incident page should be indexed?</dt>
-        <dd>Pages need clear AI context, enough incident-specific detail to be helpful on their own, and response guidance that is more useful than the upstream advisory alone.</dd>
+        <dt>Are all published incident pages indexed?</dt>
+        <dd>Yes. Published incident pages stay indexable and remain in the sitemap, while editorial reviews focus on improving or correcting pages instead of hiding them from search.</dd>
         <dt>Where can I review the editorial process?</dt>
         <dd>The public selection, quality, and correction criteria are documented on the <a href="/methodology">Methodology &amp; Editorial Policy</a> page.</dd>
       </dl>
@@ -1225,7 +1225,7 @@ export function renderIncidentsPage(incidents: IncidentEntry[], meta: IncidentsP
     ${renderSiteHeader()}
     <a class="back" href="/">Back to homepage</a>
     <h1>Recent AI Security Incidents</h1>
-    <p>This archive includes only the public incident pages that currently clear AI relevance and content-quality thresholds. Page ${meta.currentPage} of ${meta.totalPages}.</p>
+    <p>This archive includes all published incident pages. Page ${meta.currentPage} of ${meta.totalPages}.</p>
     <div style="border:1px solid #ddd6c8;background:#fffdf9;padding:16px;margin-bottom:12px;">
       <p style="margin:0 0 8px;">Each page is intended to help a security team answer three questions quickly: why the issue is AI-relevant, what part of the workflow may be exposed, and what actions should happen first.</p>
       <p style="margin:0;">Selection criteria and correction policy are documented in <a href="/methodology">Methodology &amp; Editorial Policy</a>.</p>
@@ -1268,7 +1268,7 @@ export function renderIncidentDetailPage(
   const detectionSignals = analysis.detectionSignals.map((step) => `<li>${toSafeText(step)}</li>`).join('');
   const aiSignals = assessment.aiSignals.length > 0
     ? assessment.aiSignals.map((signal) => `<li>${toSafeText(signal)}</li>`).join('')
-    : '<li>AI-specific evidence is currently weak, so this page remains excluded from search indexing.</li>';
+    : '<li>Explicit AI-specific signals are limited in the current source material, so use the cited advisory to validate scope during triage.</li>';
   const sourceLinks = incident.sources
     .map((source) => {
       const href = toSafeUrl(source.url, baseSourceUrl);
@@ -1276,13 +1276,13 @@ export function renderIncidentDetailPage(
     })
     .join('');
   const otherItems = allIncidents
-    .filter((item) => item.slug !== incident.slug && item.indexable !== false)
+    .filter((item) => item.slug !== incident.slug)
     .slice(0, 3)
     .map((item) => `<li><a href="/incidents/${encodeURIComponent(item.slug)}">${toSafeText(item.title)}</a></li>`)
     .join('');
-  const coverageNote = incident.indexable === false
-    ? 'This incident page is available for operator review, but it is excluded from search indexing until AI-specific relevance and page depth are stronger.'
-    : 'This incident currently meets the public indexing threshold for AI-specific context, incident detail, and source-backed usefulness.';
+  const coverageNote = assessment.aiSignals.length > 0
+    ? 'This incident is part of the public archive and includes explicit AI-related signals from the cited source material.'
+    : 'This incident is part of the public archive. AI-specific signals are limited in the current source material, so source citations should be reviewed closely during triage.';
   const seoDescription = trimToSentence(
     normalizeWhitespace(stripHtmlTags(incident.summary)) || 'AI security incident summary and response guidance.',
     260
@@ -1293,7 +1293,6 @@ export function renderIncidentDetailPage(
     canonicalPath: `/incidents/${incident.slug}`,
     siteUrl,
     type: 'article',
-    noindex: incident.indexable === false,
   });
   const incidentUrl = absoluteUrl(siteUrl, `/incidents/${incident.slug}`);
   const isoDate = (() => {
@@ -1570,7 +1569,7 @@ export function renderMethodologyPage(siteUrl?: string): string {
     'Methodology & Editorial Policy',
     `
     <p>Last updated: March 7, 2026</p>
-    <p>AI Security Radar is designed to publish fewer, more useful AI security pages rather than a thin archive of loosely related advisories. This page explains how incident selection, public indexing, and page quality decisions are made.</p>
+    <p>AI Security Radar is designed to publish useful AI security pages and keep the full published archive visible. This page explains how incident selection, public publishing, and correction decisions are made.</p>
     <h2>What We Monitor</h2>
     <ul>
       <li>Trusted public advisories such as GitHub Security Advisories, NVD, CISA KEV, CERT, EUVD, and selected vendor feeds.</li>
@@ -1579,16 +1578,16 @@ export function renderMethodologyPage(siteUrl?: string): string {
     </ul>
     <h2>What Counts As AI-Relevant</h2>
     <p>We do not intentionally label every software advisory as an AI incident. Public pages are meant to stay focused on issues that affect AI applications, assistants, models, agent workflows, or supporting components commonly used in AI delivery.</p>
-    <h2>When A Page Can Be Indexed</h2>
+    <h2>How Published Pages Are Indexed</h2>
     <ul>
-      <li>The source material must contain clear AI-specific context.</li>
-      <li>The page must include a substantive summary and incident-specific detail that is useful on its own.</li>
-      <li>Pages with weak AI overlap or thin content may remain publicly accessible for operator review but are marked <code>noindex</code> and excluded from the sitemap.</li>
+      <li>Published incident pages remain indexable and stay in the sitemap.</li>
+      <li>AI relevance, summary depth, and source coverage are still reviewed to prioritize editorial fixes and corrections.</li>
+      <li>If a page needs improvement, it is updated, merged, or corrected rather than silently hidden from the archive.</li>
     </ul>
     <h2>How Public Incident Pages Are Written</h2>
     <p>Source material is normalized, summarized, and then structured into sections that explain likely impact, affected workflows, detection signals, and first-response actions. Where deterministic fallbacks are used, they are designed to stay practical and avoid inflated claims.</p>
     <h2>Corrections And Removals</h2>
-    <p>If a page is later found to have weak AI relevance, duplicate coverage, or insufficient detail, it may be updated, removed from the sitemap, or excluded from indexing. Correction requests can be sent to security@aisecurityradar.com.</p>
+    <p>If a page is later found to have weak AI relevance, duplicate coverage, or insufficient detail, it may be corrected, merged with newer coverage, or removed if the underlying evidence changes materially. Correction requests can be sent to security@aisecurityradar.com.</p>
     `,
     '/methodology',
     siteUrl,

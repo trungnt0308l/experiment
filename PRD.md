@@ -124,12 +124,12 @@ Teams need a single low-cost service that detects relevant AI security incidents
 - Auto page generation pipeline.
 - Template system.
 - Citation validator.
-- Dedup and `noindex` safeguards.
+- Dedup and public archive review safeguards.
 
 **Verification Steps**:
 1. New verified incident produces a page automatically.
 2. Every page passes quality gates (unique value + citations + dedup).
-3. Thin/low-confidence pages are auto `noindex`.
+3. Published incident pages remain indexable, stay in the sitemap, and are tracked for quality corrections.
 4. Organic impressions and indexed pages are tracked per keyword cluster.
 
 **Exit Criteria**:
@@ -198,7 +198,7 @@ Teams need a single low-cost service that detects relevant AI security incidents
 - Require minimum confidence threshold for instant alerts.
 - Low-confidence items move to digest or review queue.
 - Every remediation must carry at least one source citation.
-- Public incident pages require clear AI-specific context plus substantive page detail; weakly related pages may remain accessible for operator review but are excluded from sitemap/indexing until improved.
+- Public incident pages include AI-relevance analysis, substantive page detail, and source citations; weaker pages are corrected through editorial review rather than search exclusion once published.
 
 ## 10. Cost and Infrastructure Plan
 ### Cost Principles
@@ -274,7 +274,7 @@ Teams need a single low-cost service that detects relevant AI security incidents
 4. **Cost drift**: rising data/API or notification costs.
    - Mitigation: spend caps, throttles, tier limits, monthly cost review.
 5. **SEO quality risk** for pSEO pages.
-   - Mitigation: quality gates, noindex fallback, periodic audit.
+   - Mitigation: quality review, citation requirements, periodic audit.
 
 ## 14. Assumptions and Defaults
 1. ICP is mid-market SecOps/compliance teams.
@@ -282,7 +282,7 @@ Teams need a single low-cost service that detects relevant AI security incidents
 3. Phase 1 channels are Email + Telegram.
 4. Budget discipline is strict from day one.
 5. Marketing uses credible urgency, not unsubstantiated claims.
-6. pSEO pages publish only when quality gates pass.
+6. Published incident pages remain in the public archive once released; quality issues are handled through updates and corrections rather than selective deindexing.
 
 ## Changelog
 - [2026-02-14] Initial PRD created for implementation kickoff with phased goals, verification steps, and exit criteria.
@@ -290,3 +290,4 @@ Teams need a single low-cost service that detects relevant AI security incidents
 - [2026-02-25] ghsa-advisory-parsing-normalization-hotfix: Added summary normalization safeguards (source ingestion + render caps), GHSA summary-first parsing, and admin long-summary cleanup endpoint for legacy incident content.
 - [2026-02-25] reapply-homepage-friction: Removed homepage risk checkbox gate again and restored email-first waitlist flow with optional interests.
 - [2026-03-07] seo-content-enhancement-plan: Added public indexing quality gate guidance, methodology page requirement, stricter AI relevance matching, and sitemap exclusion behavior for weak AI-overlap incident pages.
+- [2026-03-07] restore-full-incident-archive: Restored all published incidents to the public archive, sitemap, and default indexation path while keeping editorial review and correction guidance.

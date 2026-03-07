@@ -2,7 +2,6 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { z } from 'zod';
 import {
-  assessIncidentQuality,
   type IncidentEntry,
   type LandingSampleAlert,
   renderAdminMetricsPage,
@@ -359,16 +358,7 @@ function toIncidentEntry(row: PublishedIncidentRow): IncidentEntry {
     severity,
     confidence: row.confidence,
   };
-  const quality = assessIncidentQuality(incident);
-  return {
-    ...incident,
-    indexable: quality.indexable,
-    qualityReasons: quality.reasons,
-  };
-}
-
-function getIndexableIncidents(items: IncidentEntry[]): IncidentEntry[] {
-  return items.filter((item) => item.indexable !== false);
+  return incident;
 }
 
 function toLandingSample(incident: IncidentEntry | undefined, siteUrl: string): LandingSampleAlert | undefined {
@@ -938,13 +928,13 @@ export function createApp() {
   app.get('/', async (c) => {
     const siteUrl = getSiteUrl(c);
     const incidents = await listIncidents(c.env.DB);
-    const sample = toLandingSample(getIndexableIncidents(incidents)[0], siteUrl);
+    const sample = toLandingSample(incidents[0], siteUrl);
     const appName = c.env.APP_NAME ?? 'AI Security Incident Radar';
     return c.html(renderLandingPage(appName, c.env.GA_MEASUREMENT_ID, sample, siteUrl));
   });
 
   const renderIncidentsListing = async (c: Context<{ Bindings: EnvBindings }>, requestedPage: number) => {
-    const incidents = getIndexableIncidents(await listIncidents(c.env.DB));
+    const incidents = await listIncidents(c.env.DB);
     const totalPages = Math.max(1, Math.ceil(incidents.length / INCIDENTS_PER_PAGE));
     if (requestedPage > totalPages) {
       return c.text('Incident page not found', 404);
@@ -1024,7 +1014,7 @@ export function createApp() {
 
   app.get('/sitemap.xml', async (c) => {
     const siteUrl = getSiteUrl(c);
-    const incidents = getIndexableIncidents(await listIncidents(c.env.DB));
+    const incidents = await listIncidents(c.env.DB);
     const nowIso = new Date().toISOString();
     const newestIncidentDate = incidents[0]?.sortDate;
     const parsedNewestIncidentDate = newestIncidentDate ? Date.parse(newestIncidentDate) : Number.NaN;
