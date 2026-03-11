@@ -99,6 +99,7 @@ type IngestionStateRow = {
 
 const SOURCE_ORDER: SourceEvent['source'][] = ['nvd', 'cisa_kev', 'euvd', 'ghsa', 'rss', 'hn'];
 const DEFAULT_AUTO_PUBLISH_TRUSTED_SOURCES = SOURCE_ORDER.join(',');
+const DEFAULT_AUTO_PUBLISH_MIN_CONFIDENCE = 0.45;
 
 const AI_TERMS = [
   'artificial intelligence',
@@ -791,9 +792,9 @@ function minSeverity(env: EnvBindings): 'low' | 'medium' | 'high' {
 }
 
 function minAutoPublishConfidence(env: EnvBindings): number {
-  const raw = Number(env.AUTO_PUBLISH_MIN_CONFIDENCE ?? '0.74');
+  const raw = Number(env.AUTO_PUBLISH_MIN_CONFIDENCE ?? String(DEFAULT_AUTO_PUBLISH_MIN_CONFIDENCE));
   if (!Number.isFinite(raw)) {
-    return 0.74;
+    return DEFAULT_AUTO_PUBLISH_MIN_CONFIDENCE;
   }
   return Math.min(0.99, Math.max(0, raw));
 }

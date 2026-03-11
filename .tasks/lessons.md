@@ -63,3 +63,9 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: I changed a shared type used by both app code and isolated rendering tests without updating the dependent fixture at the same time.
 - **Fix applied**: Added the missing field to the UI security fixture and re-ran `npm run typecheck` plus the full test suite.
 - **Rule going forward**: When strengthening shared TypeScript types, immediately search all tests and helper fixtures that instantiate that type before running verification.
+
+## [2026-03-11] incident-publishing-check-mar7: Exact float assertion broke score regression test
+- **What went wrong**: A new ingestion regression test compared a computed relevance score with `toBe(0.45)` and failed because the weighted score resolved to `0.45000000000000007`.
+- **Root cause**: I used exact equality for a floating-point calculation instead of a tolerance-based assertion.
+- **Fix applied**: Switched the test to `toBeCloseTo(0.45, 5)` and re-ran the suite.
+- **Rule going forward**: Any test that checks weighted or derived floating-point scores must use tolerance assertions rather than exact equality.

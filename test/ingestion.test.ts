@@ -637,20 +637,43 @@ describe('ingestion helpers', () => {
     expect(shouldAutoPublish(event, { AUTO_PUBLISH_MIN_SEVERITY: 'medium' })).toBe(true);
   });
 
-  test('does not auto-publish high severity incidents below confidence threshold', () => {
+  test('keeps default auto-publish confidence aligned with sparse but valid AI GHSA advisories', () => {
+    const confidence = scoreIncidentRelevance(
+      '@siteboon/claude-code-ui Vulnerable to Unauthenticated RCE via WebSocket Shell Injection',
+      'Claude Code UI package vulnerability enables exploit paths.',
+      'ghsa'
+    );
+    expect(confidence).toBeCloseTo(0.45, 5);
+
+    const event = {
+      source: 'ghsa' as const,
+      externalId: 'GHSA-score-floor',
+      title: '@siteboon/claude-code-ui Vulnerable to Unauthenticated RCE via WebSocket Shell Injection',
+      url: 'https://github.com/advisories/GHSA-score-floor',
+      summary: 'Claude Code UI package vulnerability enables exploit paths.',
+      publishedAt: '2026-02-14T00:00:00.000Z',
+      severity: 'high' as const,
+      confidence,
+      fingerprint: 'score-floor',
+    };
+    expect(shouldAutoPublish(event, {})).toBe(true);
+    expect(shouldAutoPublish(event, { AUTO_PUBLISH_MIN_CONFIDENCE: '0.46' })).toBe(false);
+  });
+
+  test('does not auto-publish high severity incidents below the default confidence floor', () => {
     const event = {
       source: 'ghsa' as const,
       externalId: 'GHSA-low-confidence',
-      title: 'LangChain prompt injection vulnerability',
+      title: 'Claude Code UI package advisory',
       url: 'https://github.com/advisories/GHSA-low-confidence',
-      summary: 'Security advisory for a large language model workflow package.',
+      summary: 'Security issue with partial AI overlap.',
       publishedAt: '2026-02-14T00:00:00.000Z',
       severity: 'high' as const,
-      confidence: 0.6,
+      confidence: 0.44,
       fingerprint: 'low-confidence',
     };
     expect(shouldAutoPublish(event, {})).toBe(false);
-    expect(shouldAutoPublish(event, { AUTO_PUBLISH_MIN_CONFIDENCE: '0.5' })).toBe(true);
+    expect(shouldAutoPublish(event, { AUTO_PUBLISH_MIN_CONFIDENCE: '0.4' })).toBe(true);
   });
 
   test('applies safe runtime cap defaults and clamps', () => {
