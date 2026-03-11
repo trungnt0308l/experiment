@@ -1,11 +1,11 @@
 # Task: incident-publishing-check-mar7
 
 ## Meta
-- **Status**: REVIEW
+- **Status**: DONE
 - **Branch**: fix/incident-publishing-check-mar7
-- **PR**: (link once created)
+- **PR**: https://github.com/trungnt0308l/experiment/pull/new/fix/incident-publishing-check-mar7
 - **Created**: 2026-03-11 19:58:58+07:00
-- **Last Updated**: 2026-03-11 20:04:53+07:00
+- **Last Updated**: 2026-03-11 20:06:40+07:00
 
 ## Objective
 Investigate why no new incidents appear to have been published since March 7, 2026.
@@ -25,6 +25,7 @@ Investigate why no new incidents appear to have been published since March 7, 20
 - [2026-03-11 20:04:53+07:00] Lowered the default auto-publish confidence floor to `0.45` in `src/ingestion.ts`, made the same value explicit in `wrangler.toml`, and added regression coverage in `test/ingestion.test.ts` for sparse-but-valid GHSA advisories plus below-threshold behavior.
 - [2026-03-11 20:04:53+07:00] Verification passed with `npm run typecheck` and `npm run test`. Manual verification included checking the live `/incidents` archive and remote D1 state to confirm the regression window and the set of missed post-2026-03-07 no-draft events.
 - [2026-03-11 20:04:53+07:00] Completed PR self-review in `.tasks/incident-publishing-check-mar7-review.md`; no code issues found. Operational follow-up: after deployment, optionally backfill the three missed high-severity GHSA events ingested on 2026-03-10 and 2026-03-11.
+- [2026-03-11 20:06:40+07:00] Committed the fix as `fix(incident-publishing-check-mar7): restore auto-publish confidence floor` (`9cb0528`) and pushed branch `fix/incident-publishing-check-mar7` to `origin`.
 
 ## Verification Checklist
 - [x] All acceptance criteria met
