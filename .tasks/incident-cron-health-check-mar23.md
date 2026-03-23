@@ -5,7 +5,7 @@
 - **Branch**: feat/incident-cron-health-check-mar23
 - **PR**: (link once created)
 - **Created**: 2026-03-23T20:01:56.1858767+07:00
-- **Last Updated**: 2026-03-23T20:12:48.0000000+07:00
+- **Last Updated**: 2026-03-23T20:13:36.0000000+07:00
 
 ## Objective
 Check why only one incident was published in the last 10 days and make sure the cronjobs are working properly.
@@ -27,6 +27,7 @@ Check why only one incident was published in the last 10 days and make sure the 
 - [2026-03-23T20:12:48.0000000+07:00] Implemented the ingestion hardening in `src/ingestion.ts`: cron/manual runs now persist their latest state to `ingestion_state`, NVD keyword fetches run concurrently, and NVD/RSS fetch failures are recorded in the run result instead of silently disappearing.
 - [2026-03-23T20:12:48.0000000+07:00] Added regression coverage in `test/ingestion.test.ts` for persisted cron run state, visible NVD HTTP failures, and the slow-NVD starvation scenario that previously could consume the cron budget before later sources ran.
 - [2026-03-23T20:12:48.0000000+07:00] Verification passed with `npm run typecheck`, `npm run test`, and a focused `npx vitest run test/ingestion.test.ts`. Self-review completed in `.tasks/incident-cron-health-check-mar23-review.md`.
+- [2026-03-23T20:13:36.0000000+07:00] Committed the fix as `fix(incident-cron-health-check-mar23): harden cron ingestion visibility` (`e773aad`) and pushed branch `feat/incident-cron-health-check-mar23` to `origin`.
 
 ## Verification Checklist
 - [x] All acceptance criteria met
