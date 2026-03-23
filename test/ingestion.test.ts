@@ -372,6 +372,40 @@ describe('ingestion helpers', () => {
     expect(result.inserted).toBe(0);
   });
 
+  test('persists latest cron run state in ingestion_state', async () => {
+    const fixture = createPipelineDbFixture();
+    const result = await runIngestionPipeline(
+      {
+        DB: fixture.db,
+        ENABLE_HN_SOURCE: 'false',
+        RSS_FEEDS: 'https://example.com/feed.xml',
+        AUTO_PUBLISH_TRUSTED_SOURCES: 'ghsa',
+      },
+      createFetchStub({
+        ghsa: [
+          {
+            ghsa_id: 'GHSA-run-state-0001',
+            summary: 'Claude Code prompt injection vulnerability in AI workflow',
+            description: 'Security advisory for a Claude Code package used in AI assistant workflows.',
+            html_url: 'https://github.com/advisories/GHSA-run-state-0001',
+            published_at: '2026-02-20T00:00:00.000Z',
+            severity: 'high',
+          },
+        ],
+      }),
+      { mode: 'cron', runId: 'cron-run-state-test' }
+    );
+
+    const savedState = fixture.state.get('run:latest:cron');
+    expect(savedState).toBeDefined();
+    const payload = JSON.parse(savedState?.value ?? '{}');
+    expect(payload.runId).toBe('cron-run-state-test');
+    expect(payload.phase).toBe('completed');
+    expect(payload.lockSkipped).toBe(false);
+    expect(payload.draftsCreated).toBe(result.draftsCreated);
+    expect(payload.sourceStats.ghsa.inserted).toBe(1);
+  });
+
   test('cron mode skips overlapping run with active lock', async () => {
     const fixture = createPipelineDbFixture();
     let releaseFirstNvdFetch = () => {};
@@ -501,6 +535,77 @@ describe('ingestion helpers', () => {
     expect(result.sourceStats.nvd.errors).toBeGreaterThan(0);
     expect(result.sourceStats.cisa_kev.fetched).toBeGreaterThanOrEqual(1);
     expect(seenUrls.some((url) => url.includes('known_exploited_vulnerabilities.json'))).toBe(true);
+  });
+
+  test('records NVD HTTP failures and still reaches later sources', async () => {
+    const fixture = createPipelineDbFixture();
+    const result = await runIngestionPipeline(
+      {
+        DB: fixture.db,
+        ENABLE_HN_SOURCE: 'false',
+        RSS_FEEDS: 'https://example.com/feed.xml',
+        AUTO_PUBLISH_TRUSTED_SOURCES: 'ghsa',
+      },
+      createFetchStub({
+        nvdStatus: 429,
+        ghsa: [
+          {
+            ghsa_id: 'GHSA-nvd-failure-0001',
+            summary: 'LangChain prompt injection vulnerability in LLM dependency',
+            description: 'Security advisory for a LangChain package used in large language model workflows.',
+            html_url: 'https://github.com/advisories/GHSA-nvd-failure-0001',
+            published_at: '2026-02-20T00:00:00.000Z',
+            severity: 'high',
+          },
+        ],
+      }),
+      { mode: 'cron', runId: 'cron-nvd-http-failure-test' }
+    );
+
+    expect(result.errors.some((item) => item.includes('NVD keyword'))).toBe(true);
+    expect(result.sourceStats.nvd.errors).toBe(4);
+    expect(result.sourceStats.ghsa.inserted).toBe(1);
+    expect(result.draftsCreated).toBe(1);
+  });
+
+  test('parallelizes NVD keyword fetches so slow NVD does not starve later sources', async () => {
+    const fixture = createPipelineDbFixture();
+    const baseFetch = createFetchStub({
+      ghsa: [
+        {
+          ghsa_id: 'GHSA-parallel-nvd-0001',
+          summary: 'Claude Code prompt injection vulnerability in AI workflow',
+          description: 'Security advisory for a Claude Code package used in AI assistant workflows.',
+          html_url: 'https://github.com/advisories/GHSA-parallel-nvd-0001',
+          published_at: '2026-02-20T00:00:00.000Z',
+          severity: 'high',
+        },
+      ],
+    });
+    const slowNvdFetch = (async (request: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(request);
+      if (url.includes('services.nvd.nist.gov')) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return baseFetch(request, init);
+    }) as typeof fetch;
+
+    const result = await runIngestionPipeline(
+      {
+        DB: fixture.db,
+        ENABLE_HN_SOURCE: 'false',
+        RSS_FEEDS: 'https://example.com/feed.xml',
+        AUTO_PUBLISH_TRUSTED_SOURCES: 'ghsa',
+        INGEST_CRON_MAX_RUNTIME_MS: '60',
+        INGEST_CRON_DISABLE_LLM_DEDUPE: 'true',
+      },
+      slowNvdFetch,
+      { mode: 'cron', runId: 'cron-parallel-nvd-test' }
+    );
+
+    expect(result.stopReason).toBe('completed');
+    expect(result.sourceStats.ghsa.inserted).toBe(1);
+    expect(result.draftsCreated).toBe(1);
   });
 
   test('uses GHSA source severity to auto-publish high advisories in cron runs', async () => {

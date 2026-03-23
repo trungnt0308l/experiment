@@ -69,3 +69,9 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: I used exact equality for a floating-point calculation instead of a tolerance-based assertion.
 - **Fix applied**: Switched the test to `toBeCloseTo(0.45, 5)` and re-ran the suite.
 - **Rule going forward**: Any test that checks weighted or derived floating-point scores must use tolerance assertions rather than exact equality.
+
+## [2026-03-23] incident-cron-health-check-mar23: Duplicate payload keys slipped through before final typecheck
+- **What went wrong**: `npm run typecheck` failed after the ingestion telemetry change because the new run-state payload objects specified `mode` twice, once explicitly and once through a spread object.
+- **Root cause**: I added the run-state JSON shape quickly and did not check for overlapping keys in the spread payload.
+- **Fix applied**: Removed the duplicate explicit `mode` fields and re-ran `npm run typecheck` plus the full test suite.
+- **Rule going forward**: When building typed telemetry/state payloads with object spreads, scan for overlapping keys before leaving the edit phase.

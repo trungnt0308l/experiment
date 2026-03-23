@@ -97,6 +97,11 @@ type IngestionStateRow = {
   updated_at: string;
 };
 
+type SourceFetchResult = {
+  events: SourceEvent[];
+  errors: string[];
+};
+
 const SOURCE_ORDER: SourceEvent['source'][] = ['nvd', 'cisa_kev', 'euvd', 'ghsa', 'rss', 'hn'];
 const DEFAULT_AUTO_PUBLISH_TRUSTED_SOURCES = SOURCE_ORDER.join(',');
 const DEFAULT_AUTO_PUBLISH_MIN_CONFIDENCE = 0.45;
@@ -197,6 +202,7 @@ const GHSA_EXCERPT_MAX_CHARS = 170;
 const NORMALIZE_SUMMARY_THRESHOLD_CHARS = 700;
 const CRON_LOCK_KEY = 'lock:cron';
 const CRON_LOCK_TTL_MS = 55 * 60 * 1000;
+const RUN_STATE_KEY_PREFIX = 'run:latest:';
 
 function clampInt(value: string | undefined, fallback: number, min: number, max: number): number {
   if (!value) {
@@ -508,6 +514,10 @@ function cursorStateKey(source: SourceEvent['source']): string {
   return `cursor:${source}`;
 }
 
+function runStateKey(mode: IngestionMode): string {
+  return `${RUN_STATE_KEY_PREFIX}${mode}`;
+}
+
 function sourceMaxItems(source: SourceEvent['source'], caps: RuntimeCaps, rssFeedCount: number): number {
   if (source === 'hn') {
     return caps.hnMaxItems;
@@ -608,6 +618,24 @@ async function writeSourceCursor(
 ): Promise<void> {
   const value = JSON.stringify({ publishedAt, runId });
   await putIngestionState(db, cursorStateKey(source), value, nowIso);
+}
+
+async function writeRunState(
+  db: D1Database,
+  mode: IngestionMode,
+  payload: Record<string, unknown>,
+  nowIso: string,
+  errors?: string[]
+): Promise<void> {
+  try {
+    await putIngestionState(db, runStateKey(mode), JSON.stringify(payload), nowIso);
+  } catch (error) {
+    if (!errors) {
+      return;
+    }
+    const message = error instanceof Error ? error.message : 'run state write failed';
+    errors.push(`run state write failed: ${message}`);
+  }
 }
 
 function prepareSourceQueue(
@@ -963,56 +991,79 @@ async function fetchNvdEvents(
   fetchFn: FetchLike,
   apiKey: string | undefined,
   resultsPerKeyword: number
-): Promise<SourceEvent[]> {
+): Promise<SourceFetchResult> {
   const keywords = ['artificial intelligence', 'llm', 'prompt injection', 'machine learning'];
-  const events: SourceEvent[] = [];
   const now = new Date();
   const start = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
   const startIso = start.toISOString();
   const endIso = now.toISOString();
 
-  for (const keyword of keywords) {
-    const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(keyword)}&resultsPerPage=${resultsPerKeyword}&pubStartDate=${encodeURIComponent(startIso)}&pubEndDate=${encodeURIComponent(endIso)}`;
-    const headers: Record<string, string> = {};
-    if (apiKey) {
-      headers.apiKey = apiKey;
-    }
-
-    const res = await fetchFn(url, { headers });
-    if (!res.ok) {
-      continue;
-    }
-
-    const body = (await res.json()) as {
-      vulnerabilities?: Array<{
-        cve?: {
-          id?: string;
-          published?: string;
-          descriptions?: Array<{ lang?: string; value?: string }>;
-        };
-      }>;
-    };
-
-    for (const vulnerability of body.vulnerabilities ?? []) {
-      const cve = vulnerability.cve;
-      const cveId = cve?.id;
-      if (!cveId) {
-        continue;
+  const responses = await Promise.all(
+    keywords.map(async (keyword): Promise<SourceFetchResult> => {
+      const url = `https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch=${encodeURIComponent(keyword)}&resultsPerPage=${resultsPerKeyword}&pubStartDate=${encodeURIComponent(startIso)}&pubEndDate=${encodeURIComponent(endIso)}`;
+      const headers: Record<string, string> = {};
+      if (apiKey) {
+        headers.apiKey = apiKey;
       }
 
-      const summary = firstEnglishDescription(cve.descriptions);
-      events.push({
-        source: 'nvd',
-        externalId: cveId,
-        title: `${cveId} (NVD)`,
-        url: `https://nvd.nist.gov/vuln/detail/${cveId}`,
-        summary,
-        publishedAt: cve.published ?? null,
-      });
-    }
-  }
+      try {
+        const res = await fetchFn(url, { headers });
+        if (!res.ok) {
+          return {
+            events: [],
+            errors: [`NVD keyword "${keyword}" failed: ${res.status}`],
+          };
+        }
 
-  return events;
+        const body = (await res.json()) as {
+          vulnerabilities?: Array<{
+            cve?: {
+              id?: string;
+              published?: string;
+              descriptions?: Array<{ lang?: string; value?: string }>;
+            };
+          }>;
+        };
+
+        const events = (body.vulnerabilities ?? [])
+          .map((vulnerability) => {
+            const cve = vulnerability.cve;
+            const cveId = cve?.id;
+            if (!cveId) {
+              return null;
+            }
+
+            const summary = firstEnglishDescription(cve.descriptions);
+            return {
+              source: 'nvd' as const,
+              externalId: cveId,
+              title: `${cveId} (NVD)`,
+              url: `https://nvd.nist.gov/vuln/detail/${cveId}`,
+              summary,
+              publishedAt: cve.published ?? null,
+            };
+          })
+          .filter(isPresent);
+
+        return { events, errors: [] };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'NVD fetch failed';
+        return {
+          events: [],
+          errors: [`NVD keyword "${keyword}" failed: ${message}`],
+        };
+      }
+    })
+  );
+
+  return responses.reduce<SourceFetchResult>(
+    (acc, item) => {
+      acc.events.push(...item.events);
+      acc.errors.push(...item.errors);
+      return acc;
+    },
+    { events: [], errors: [] }
+  );
 }
 
 async function fetchGitHubAdvisoryEvents(fetchFn: FetchLike, token: string | undefined, maxItems: number): Promise<SourceEvent[]> {
@@ -1246,24 +1297,40 @@ function resolveRssFeedUrls(env: EnvBindings): string[] {
   return env.RSS_FEEDS.split(',').map((item) => item.trim()).filter(Boolean);
 }
 
-async function fetchRssEvents(fetchFn: FetchLike, env: EnvBindings, maxItemsPerFeed: number): Promise<SourceEvent[]> {
+async function fetchRssEvents(fetchFn: FetchLike, env: EnvBindings, maxItemsPerFeed: number): Promise<SourceFetchResult> {
   const urls = resolveRssFeedUrls(env);
-  const events: SourceEvent[] = [];
-
-  const feedPromises = urls.map(async (feedUrl) => {
-    const res = await fetchFn(feedUrl, { headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml' } });
-    if (!res.ok) {
-      return [];
+  const feedPromises = urls.map(async (feedUrl): Promise<SourceFetchResult> => {
+    try {
+      const res = await fetchFn(feedUrl, { headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml' } });
+      if (!res.ok) {
+        return {
+          events: [],
+          errors: [`RSS feed "${feedUrl}" failed: ${res.status}`],
+        };
+      }
+      const xml = await res.text();
+      return {
+        events: parseRssOrAtom(xml, feedUrl).slice(0, maxItemsPerFeed),
+        errors: [],
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'RSS fetch failed';
+      return {
+        events: [],
+        errors: [`RSS feed "${feedUrl}" failed: ${message}`],
+      };
     }
-    const xml = await res.text();
-    return parseRssOrAtom(xml, feedUrl).slice(0, maxItemsPerFeed);
   });
 
   const resolved = await Promise.all(feedPromises);
-  for (const chunk of resolved) {
-    events.push(...chunk);
-  }
-  return events;
+  return resolved.reduce<SourceFetchResult>(
+    (acc, item) => {
+      acc.events.push(...item.events);
+      acc.errors.push(...item.errors);
+      return acc;
+    },
+    { events: [], errors: [] }
+  );
 }
 
 function buildDraftPost(event: StoredEvent, nowIso: string, autoPublish: boolean): DraftPost {
@@ -1466,6 +1533,21 @@ export async function runIngestionPipeline(
   const timedFetch = withFetchTimeout(fetchFn, caps.fetchTimeoutMs);
   const rssFeedCount = resolveRssFeedUrls(env).length;
 
+  await writeRunState(
+    env.DB,
+    mode,
+    {
+      runId,
+      mode,
+      phase: 'started',
+      startedAt: nowIso,
+      finishedAt: null,
+      lockSkipped: false,
+    },
+    nowIso,
+    errors
+  );
+
   if (mode === 'cron') {
     const lockPayload = JSON.stringify({ runId, acquiredAt: nowIso });
     const lock = await acquireCronLock(env.DB, nowIso, lockPayload);
@@ -1473,11 +1555,25 @@ export async function runIngestionPipeline(
       errors.push(`cron lock warning: ${lock.error}`);
     }
     if (!lock.acquired) {
+      const finishedAt = new Date().toISOString();
       const lockSkippedResult = {
         ...baseResult,
         lockSkipped: true,
         errors,
       };
+      await writeRunState(
+        env.DB,
+        mode,
+        {
+          runId,
+          phase: 'lock_skipped',
+          startedAt: nowIso,
+          finishedAt,
+          ...lockSkippedResult,
+        },
+        finishedAt,
+        errors
+      );
       console.log(JSON.stringify({ event: 'ingestion_summary', runId, ...lockSkippedResult, errors_count: errors.length }));
       return lockSkippedResult;
     }
@@ -1510,7 +1606,12 @@ export async function runIngestionPipeline(
       let sourceEvents: SourceEvent[] = [];
       try {
         if (source === 'nvd') {
-          sourceEvents = await fetchNvdEvents(timedFetch, env.NVD_API_KEY, caps.nvdResultsPerKeyword);
+          const result = await fetchNvdEvents(timedFetch, env.NVD_API_KEY, caps.nvdResultsPerKeyword);
+          sourceEvents = result.events;
+          if (result.errors.length > 0) {
+            errors.push(...result.errors);
+            stats.errors += result.errors.length;
+          }
         } else if (source === 'cisa_kev') {
           sourceEvents = await fetchCisaKevEvents(timedFetch, caps.cisaMaxItemsPerRun);
         } else if (source === 'euvd') {
@@ -1518,7 +1619,12 @@ export async function runIngestionPipeline(
         } else if (source === 'ghsa') {
           sourceEvents = await fetchGitHubAdvisoryEvents(timedFetch, env.GITHUB_API_TOKEN, caps.ghsaMaxItemsPerRun);
         } else if (source === 'rss') {
-          sourceEvents = await fetchRssEvents(timedFetch, env, caps.rssMaxItemsPerFeed);
+          const result = await fetchRssEvents(timedFetch, env, caps.rssMaxItemsPerFeed);
+          sourceEvents = result.events;
+          if (result.errors.length > 0) {
+            errors.push(...result.errors);
+            stats.errors += result.errors.length;
+          }
         } else if (source === 'hn') {
           sourceEvents = await fetchHnEvents(timedFetch, caps.hnMaxItems);
         }
@@ -1711,6 +1817,21 @@ export async function runIngestionPipeline(
       errors,
     };
 
+    const finishedAt = new Date().toISOString();
+    await writeRunState(
+      env.DB,
+      mode,
+      {
+        runId,
+        phase: 'completed',
+        startedAt: nowIso,
+        finishedAt,
+        ...result,
+      },
+      finishedAt,
+      errors
+    );
+
     console.log(
       JSON.stringify({
         event: 'ingestion_summary',
@@ -1732,6 +1853,26 @@ export async function runIngestionPipeline(
     );
 
     return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'pipeline processing error';
+    errors.push(message);
+    const finishedAt = new Date().toISOString();
+    await writeRunState(
+      env.DB,
+      mode,
+      {
+        runId,
+        mode,
+        phase: 'failed',
+        startedAt: nowIso,
+        finishedAt,
+        errors,
+        sourceStats,
+      },
+      finishedAt,
+      errors
+    );
+    throw error;
   } finally {
     if (mode === 'cron') {
       try {
