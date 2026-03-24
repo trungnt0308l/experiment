@@ -5,7 +5,7 @@
 - **Branch**: feat/incident-cron-health-check-mar23
 - **PR**: (link once created)
 - **Created**: 2026-03-23T20:01:56.1858767+07:00
-- **Last Updated**: 2026-03-23T20:13:36.0000000+07:00
+- **Last Updated**: 2026-03-24T15:00:35.0000000+07:00
 
 ## Objective
 Check why only one incident was published in the last 10 days and make sure the cronjobs are working properly.
@@ -28,6 +28,9 @@ Check why only one incident was published in the last 10 days and make sure the 
 - [2026-03-23T20:12:48.0000000+07:00] Added regression coverage in `test/ingestion.test.ts` for persisted cron run state, visible NVD HTTP failures, and the slow-NVD starvation scenario that previously could consume the cron budget before later sources ran.
 - [2026-03-23T20:12:48.0000000+07:00] Verification passed with `npm run typecheck`, `npm run test`, and a focused `npx vitest run test/ingestion.test.ts`. Self-review completed in `.tasks/incident-cron-health-check-mar23-review.md`.
 - [2026-03-23T20:13:36.0000000+07:00] Committed the fix as `fix(incident-cron-health-check-mar23): harden cron ingestion visibility` (`e773aad`) and pushed branch `feat/incident-cron-health-check-mar23` to `origin`.
+- [2026-03-24T14:52:30.0000000+07:00] Re-synced the feature branch with `origin/main`, re-ran `npm run typecheck` and `npm run test`, and confirmed the release candidate was clean before production deployment.
+- [2026-03-24T14:52:43.0000000+07:00] Deployed commit `161ab66` to the production Worker with `npm run deploy:prod`. Cloudflare reported version `2492dcc6-8ac3-4bd6-abee-fa4daa7fe633`, `handlers: fetch, scheduled`, and `schedule: 0 * * * *`.
+- [2026-03-24T15:00:35.0000000+07:00] Verified the first post-deploy hourly cron in remote D1. `ingestion_state.run:latest:cron` updated at `2026-03-24T08:00:25.436Z` with `phase=completed`, `lockSkipped=false`, `errors=[]`, and no source fetch failures. The run fetched 169 source items and processed 0 relevant incidents, which is consistent with a quiet/no-match window rather than a broken scheduler.
 
 ## Verification Checklist
 - [x] All acceptance criteria met
@@ -37,4 +40,4 @@ Check why only one incident was published in the last 10 days and make sure the 
 - [x] PRD updated if scope changed
 
 ## Issues / Blockers
-- Production deployment was not performed from this session, so the new `run:latest:cron` heartbeat and fetch-error visibility will not appear in remote D1 until this branch is deployed.
+(none)
