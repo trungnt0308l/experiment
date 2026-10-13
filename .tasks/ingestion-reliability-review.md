@@ -42,6 +42,7 @@ Replaces cursor-only collection with durable source inbox/checkpoints, retryable
 - Live first-page recovery preview passed: 376 fetched, 260 unique matching candidates, 169 source-high. Candidates include existing records; preview is not a gap count or publication guarantee.
 - Production migration/deployment/smoke checks pass; initial recovery published 21 additional pages and retained 249 pending records for scheduled continuation. Recovery is ongoing. Operator notifications and the next actual scheduler invocation have not yet been observed in production; unit/integration checks cover those paths. Intentional local quota pauses do not send outage alerts.
 - Both Windows GitHub CI jobs passed for the deployed fair-recovery code. Request-budget setup was subsequently extracted into a small helper without changing behavior, and final verification/deployment is repeated for that refactor.
+- Final code `e33498b`: both Windows CI jobs pass, 99 tests/types/lint pass, deployed version `0b948d5c-57ac-4c7b-929c-8358269f5e72`. Account Worker settings confirm paid/non-free tier. Final handoff changes documentation only.
 
 ### Suggestions / Follow-up
 1. Configure independent authenticated heartbeat monitoring; an absent scheduler cannot self-alert.

@@ -5,7 +5,7 @@
 - **Branch**: fix/ingestion-reliability
 - **PR**: https://github.com/trungnt0308l/experiment/pull/3
 - **Created**: 2026-10-13T21:50:33+07:00
-- **Last Updated**: 2026-10-13T23:21:00+07:00
+- **Last Updated**: 2026-10-13T23:25:00+07:00
 
 ## Objective
 Implement the approved ingestion robustness plan: complete collection, recoverable work, authoritative source metadata, archive access, operational health/alerts, verification, and controlled recovery of the incident gap.
@@ -34,6 +34,7 @@ Implement the approved ingestion robustness plan: complete collection, recoverab
 - [2026-10-13T23:19+07:00] Reviewed constrained recovery progress and isolated NVD keyword rotation per job to prevent starvation with one remaining request. Added regression across four runs. Intentional local quota pauses remain visible in health but do not trigger outage notification noise; real HTTP errors, rejected tokens, stale heartbeats and aged backlog still alert.
 - [2026-10-13T23:21+07:00] Final code commit `50db85d` pushed to PR #3 and deployed as Worker version `1d21b0de-5e8a-46f6-93b0-8db13ec86423`; cron remains hourly. Windows verification: 99 tests pass, typecheck/lint pass, coverage 80.40% lines overall (durable runtime 97.87%; network/storage/alerts/enrichment 100% lines), dependency audit zero vulnerabilities. Recovered detail URL returns 200 with original May source disclosure and Oct 13 Radar publication. Waiting for final Windows CI results before completion handoff. Recovery stays enabled with 249 pending records; no destructive production reset/rollback performed.
 - [2026-10-13T23:22+07:00] Both Windows CI jobs for `50db85d` passed. Implementation and initial controlled recovery are complete; historical scanning/processing intentionally continues through the deployed hourly scheduler. Extracted request-budget setup into its own small helper for the project function-size convention, with no behavior change; final tests/deployment are repeated before handoff. Tracked node_modules/tool-cache changes are excluded from commits; no credential or binary tooling artifacts are included in PR #3.
+- [2026-10-13T23:25+07:00] Final refactor commit `e33498b` passed 99 tests/typecheck/lint and both Windows CI jobs ([push](https://github.com/trungnt0308l/experiment/actions/runs/38430072388), [PR](https://github.com/trungnt0308l/experiment/actions/runs/38430085540)). Deployed final Worker version `0b948d5c-57ac-4c7b-929c-8358269f5e72`. Cloudflare account Worker settings confirm `free_tier=false`, consistent with the production query budget; subscription/billing detail was not accessed. Stopped the isolated local development server. PR #3 remains open, not merged; production deployment is verified and recovery remains resumable/enabled. This final documentation-only commit records the handoff without changing deployed code.
 
 ## Verification Checklist
 - [x] Pagination catches current and historical advisories without dropping timestamp ties
