@@ -204,6 +204,33 @@ function createFetchStub(input: {
   }) as typeof fetch;
 }
 
+function failNextIngestionWrite(db: D1Database, table: 'ingested_events' | 'draft_posts'): D1Database {
+  let shouldFail = true;
+  return {
+    ...db,
+    prepare(sql: string) {
+      const statement = db.prepare(sql);
+      if (!sql.trim().toLowerCase().startsWith(`insert into ${table}`)) return statement;
+      return {
+        ...statement,
+        bind(...params: unknown[]) {
+          const bound = statement.bind(...params);
+          return {
+            ...bound,
+            async run() {
+              if (shouldFail) {
+                shouldFail = false;
+                throw new Error(`simulated transient ${table} write failure`);
+              }
+              return bound.run();
+            },
+          };
+        },
+      };
+    },
+  } as D1Database;
+}
+
 function createNormalizationDbFixture() {
   const longEventSummary = `## Advisory\n\`\`\`js\nconsole.log("poc");\n\`\`\`\nAttackers can trigger AI model deserialization bypass and execute unsafe opcodes. ${'detail '.repeat(140)}`;
   const longDraftSummary = `### Draft rewrite\nAttackers can bypass trust checks in AI processing workflows. ${'context '.repeat(130)}\n\`\`\`python\nprint("debug")\n\`\`\``;
@@ -264,6 +291,125 @@ function createNormalizationDbFixture() {
 
   return { db, events, drafts };
 }
+
+describe('October ingestion diagnostic reproductions', () => {
+  test('reports rejected GitHub authentication while completing the remaining sources', async () => {
+    const fixture = createPipelineDbFixture();
+    const fallback = createFetchStub();
+    const fetchWithRejectedToken: typeof fetch = async (request, init) =>
+      String(request).includes('api.github.com/advisories')
+        ? jsonResponse({ message: 'Bad credentials' }, 401)
+        : fallback(request, init);
+
+    const result = await runIngestionPipeline(
+      { DB: fixture.db, ENABLE_HN_SOURCE: 'false', RSS_FEEDS: 'https://example.com/feed.xml' },
+      fetchWithRejectedToken,
+      { mode: 'cron', runId: 'audit-ghsa-rejected-token' }
+    );
+
+    expect(result.errors).toContain('GitHub advisories failed: 401');
+    expect(result.sourceStats.ghsa.errors).toBe(1);
+    expect(result.sourceStats.ghsa.fetched).toBe(0);
+    expect(result.stopReason).toBe('completed');
+    const heartbeat = JSON.parse(fixture.state.get('run:latest:cron')!.value);
+    expect(heartbeat.errors).toContain('GitHub advisories failed: 401');
+  });
+
+  test('reproduces newer NVD incidents staying undiscovered across repeated first-page polls', async () => {
+    const fixture = createPipelineDbFixture();
+    const fallback = createFetchStub();
+    const requests: URL[] = [];
+    const candidates = Array.from({ length: 7 }, (_, index) => ({
+      cve: {
+        id: `CVE-2026-${99001 + index}`,
+        published: new Date(Date.now() - (55 - index) * 86400000).toISOString(),
+        descriptions: [{ lang: 'en', value: `LLM vulnerability allows critical exploit ${index}` }],
+      },
+    }));
+    const pagedNvd: typeof fetch = async (request, init) => {
+      const url = new URL(String(request));
+      if (!url.hostname.includes('services.nvd.nist.gov')) return fallback(request, init);
+      requests.push(url);
+      if (url.searchParams.get('keywordSearch') !== 'llm') return jsonResponse({ vulnerabilities: [] });
+      const offset = Number(url.searchParams.get('startIndex') ?? 0);
+      const pageSize = Number(url.searchParams.get('resultsPerPage'));
+      return jsonResponse({ totalResults: candidates.length, startIndex: offset, resultsPerPage: pageSize,
+        vulnerabilities: candidates.slice(offset, offset + pageSize) });
+    };
+    const env = { DB: fixture.db, ENABLE_HN_SOURCE: 'false', RSS_FEEDS: 'https://example.com/feed.xml' };
+
+    const first = await runIngestionPipeline(env, pagedNvd, { mode: 'cron', runId: 'audit-nvd-first' });
+    const second = await runIngestionPipeline(env, pagedNvd, { mode: 'cron', runId: 'audit-nvd-repeat' });
+
+    expect(first.sourceStats.nvd.inserted).toBe(6);
+    expect(second.sourceStats.nvd.eligible).toBe(0);
+    expect(fixture.events.some((event) => event.external_id === candidates[6].cve.id)).toBe(false);
+    expect(requests.every((url) => !url.searchParams.has('startIndex'))).toBe(true);
+  });
+
+  test('reproduces a failed event write being skipped on the next poll after cursor advancement', async () => {
+    const fixture = createPipelineDbFixture();
+    const publishedAt = new Date(Date.now() - 3600000).toISOString();
+    const fetchStub = createFetchStub({ ghsa: [{
+      ghsa_id: 'GHSA-audit-event-write', summary: 'LLM critical vulnerability',
+      html_url: 'https://github.com/advisories/GHSA-audit-event-write',
+      published_at: publishedAt, severity: 'high',
+    }] });
+    const env = { DB: failNextIngestionWrite(fixture.db, 'ingested_events'),
+      ENABLE_HN_SOURCE: 'false', RSS_FEEDS: 'https://example.com/feed.xml' };
+
+    const failed = await runIngestionPipeline(env, fetchStub, { mode: 'cron', runId: 'audit-write-fail' });
+    const retry = await runIngestionPipeline(env, fetchStub, { mode: 'cron', runId: 'audit-write-retry' });
+
+    expect(failed.errors).toContain('simulated transient ingested_events write failure');
+    expect(JSON.parse(fixture.state.get('cursor:ghsa')!.value).publishedAt).toBe(publishedAt);
+    expect(retry.sourceStats.ghsa.eligible).toBe(0);
+    expect(fixture.events).toHaveLength(0);
+  });
+
+  test('reproduces records sharing a timestamp being skipped after a partial budgeted run', async () => {
+    const fixture = createPipelineDbFixture();
+    const publishedAt = new Date(Date.now() - 3600000).toISOString();
+    const fetchStub = createFetchStub({ ghsa: ['alpha', 'beta'].map((id) => ({
+      ghsa_id: `GHSA-audit-shared-${id}`, summary: `LLM critical vulnerability ${id}`,
+      html_url: `https://github.com/advisories/GHSA-audit-shared-${id}`,
+      published_at: publishedAt, severity: 'high',
+    })) });
+    const env = { DB: fixture.db, ENABLE_HN_SOURCE: 'false',
+      RSS_FEEDS: 'https://example.com/feed.xml', INGEST_CRON_MAX_PROCESS_EVENTS: '1' };
+
+    const first = await runIngestionPipeline(env, fetchStub, { mode: 'cron', runId: 'audit-shared-first' });
+    const retry = await runIngestionPipeline(env, fetchStub, { mode: 'cron', runId: 'audit-shared-retry' });
+
+    expect(first.stopReason).toBe('event_budget');
+    expect(first.sourceStats.ghsa.queued).toBe(1);
+    expect(retry.sourceStats.ghsa.eligible).toBe(0);
+    expect(fixture.events).toHaveLength(1);
+    expect(fixture.events[0].external_id).toBe('GHSA-audit-shared-alpha');
+  });
+
+  test('reproduces a persisted high-severity event never getting its draft after a failed draft write', async () => {
+    const fixture = createPipelineDbFixture();
+    const publishedAt = new Date(Date.now() - 3600000).toISOString();
+    const fetchStub = createFetchStub({ ghsa: [{
+      ghsa_id: 'GHSA-audit-draft-write', summary: 'LLM critical vulnerability',
+      html_url: 'https://github.com/advisories/GHSA-audit-draft-write',
+      published_at: publishedAt, severity: 'high',
+    }] });
+    const env = { DB: failNextIngestionWrite(fixture.db, 'draft_posts'),
+      ENABLE_HN_SOURCE: 'false', RSS_FEEDS: 'https://example.com/feed.xml' };
+
+    const failed = await runIngestionPipeline(env, fetchStub, { mode: 'cron', runId: 'audit-draft-fail' });
+    const retry = await runIngestionPipeline(env, fetchStub, { mode: 'cron', runId: 'audit-draft-retry' });
+
+    expect(failed.errors).toContain('simulated transient draft_posts write failure');
+    expect(fixture.events).toHaveLength(1);
+    expect(failed.draftsCreated + retry.draftsCreated).toBe(0);
+    const draft = await fixture.db.prepare('SELECT id FROM draft_posts WHERE event_id = ?1 LIMIT 1')
+      .bind(fixture.events[0].id).first();
+    expect(draft).toBeNull();
+  });
+});
 
 describe('ingestion helpers', () => {
   test('scores AI security text as relevant', () => {
