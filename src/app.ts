@@ -15,6 +15,8 @@ import {
   renderTermsPage,
 } from './ui';
 import { createDraftFromIngestionEvent, normalizeLongSummaries, runIngestionPipeline } from './ingestion';
+import { ingestionHealth, previewBackfill } from './ingestion-runtime';
+import { acquireLease, LEASE_KEY, readState, releaseLease, writeState } from './ingestion-storage';
 import { llmEnrichIncident } from './llm';
 
 export type EnvBindings = {
@@ -48,6 +50,7 @@ export type EnvBindings = {
   AUTO_PUBLISH_MIN_SEVERITY?: string;
   AUTO_PUBLISH_MIN_CONFIDENCE?: string;
   ADMIN_API_TOKEN?: string;
+  INGESTION_ALERTS_ENABLED?: string;
   RESEND_API_KEY?: string;
   NOTIFY_EMAIL_TO?: string;
   TELEGRAM_BOT_TOKEN?: string;
@@ -350,6 +353,7 @@ function toIncidentEntry(row: PublishedIncidentRow): IncidentEntry {
     sortDate,
     incidentDate,
     publishedDate,
+    publicationDateIso: row.published_at ?? row.created_at,
     summary,
     impact,
     remedy,
@@ -380,7 +384,8 @@ function toLandingSample(incident: IncidentEntry | undefined, siteUrl: string): 
   };
 }
 
-async function fetchPublishedDbIncidents(db: D1Database | undefined): Promise<IncidentEntry[]> {
+async function fetchPublishedDbIncidents(db: D1Database | undefined,
+  options: { limit?: number; offset?: number; slug?: string } = {}): Promise<IncidentEntry[]> {
   if (!db) {
     return [];
   }
@@ -405,18 +410,19 @@ async function fetchPublishedDbIncidents(db: D1Database | undefined): Promise<In
          d.enriched_remedy_json
        FROM draft_posts d
        JOIN ingested_events e ON e.id = d.event_id
-       WHERE d.status = 'published'
-       ORDER BY datetime(COALESCE(e.published_at, d.published_at, d.created_at)) DESC
-       LIMIT 200`
+       WHERE d.status = 'published' ${options.slug ? 'AND d.slug = ?3' : ''}
+       ORDER BY datetime(COALESCE(e.published_at, d.published_at, d.created_at)) DESC, d.id DESC
+       LIMIT ?1 OFFSET ?2`
     )
+    .bind(options.limit ?? 10, options.offset ?? 0, ...(options.slug ? [options.slug] : []))
     .all<PublishedIncidentRow>();
 
   const rows = result.results ?? [];
   return rows.map(toIncidentEntry);
 }
 
-async function listIncidents(db: D1Database | undefined): Promise<IncidentEntry[]> {
-  const published = await fetchPublishedDbIncidents(db);
+async function listIncidents(db: D1Database | undefined, options: { limit?: number; offset?: number; slug?: string } = {}): Promise<IncidentEntry[]> {
+  const published = await fetchPublishedDbIncidents(db, options);
   return getSortedIncidents(published);
 }
 
@@ -524,7 +530,7 @@ async function enrichPublishedDraft(env: EnvBindings, draftId: number): Promise<
     return;
   }
 
-  let enrichment = null as Awaited<ReturnType<typeof llmEnrichIncident>>;
+  let enrichment: Awaited<ReturnType<typeof llmEnrichIncident>>;
   try {
     enrichment = await llmEnrichIncident(env, {
       source: toSourceKind(row.source),
@@ -908,6 +914,14 @@ async function notifySignup(env: EnvBindings, signup: WaitlistSignup): Promise<v
   ]);
 }
 
+const backfillSchema = z.object({
+  from: z.string().datetime({ offset: true }),
+  to: z.string().datetime({ offset: true }),
+  sources: z.array(z.enum(['nvd', 'ghsa'])).min(1).max(2),
+  dryRun: z.boolean().default(true),
+}).refine((value) => Date.parse(value.from) < Date.parse(value.to) && Date.parse(value.to) <= Date.now()
+  && Date.parse(value.to) - Date.parse(value.from) <= 366 * 86400000);
+
 export function createApp() {
   const app = new Hono<{ Bindings: EnvBindings }>();
 
@@ -934,21 +948,22 @@ export function createApp() {
   });
 
   const renderIncidentsListing = async (c: Context<{ Bindings: EnvBindings }>, requestedPage: number) => {
-    const incidents = await listIncidents(c.env.DB);
-    const totalPages = Math.max(1, Math.ceil(incidents.length / INCIDENTS_PER_PAGE));
+    const count = c.env.DB ? await c.env.DB.prepare("SELECT count(*) AS count FROM draft_posts WHERE status='published'").first<{ count: number }>() : null;
+    const totalIncidents = count?.count ?? 0;
+    const totalPages = Math.max(1, Math.ceil(totalIncidents / INCIDENTS_PER_PAGE));
+    const incidents = await listIncidents(c.env.DB, { limit: INCIDENTS_PER_PAGE, offset: (requestedPage - 1) * INCIDENTS_PER_PAGE });
     if (requestedPage > totalPages) {
       return c.text('Incident page not found', 404);
     }
 
-    const start = (requestedPage - 1) * INCIDENTS_PER_PAGE;
-    const pageIncidents = incidents.slice(start, start + INCIDENTS_PER_PAGE);
+    const pageIncidents = incidents;
     const prevPagePath = requestedPage > 1 ? incidentsPagePath(requestedPage - 1) : undefined;
     const nextPagePath = requestedPage < totalPages ? incidentsPagePath(requestedPage + 1) : undefined;
     return c.html(
       renderIncidentsPage(pageIncidents, {
         currentPage: requestedPage,
         totalPages,
-        totalIncidents: incidents.length,
+        totalIncidents,
         prevPagePath,
         nextPagePath,
         siteUrl: getSiteUrl(c),
@@ -982,7 +997,7 @@ export function createApp() {
   app.get('/incidents/:slug', async (c) => {
     const slug = c.req.param('slug');
     const incidents = await listIncidents(c.env.DB);
-    const incident = incidents.find((item) => item.slug === slug);
+    const incident = (await listIncidents(c.env.DB, { slug, limit: 1 }))[0];
     if (!incident) {
       return c.text('Incident not found', 404);
     }
@@ -1014,9 +1029,13 @@ export function createApp() {
 
   app.get('/sitemap.xml', async (c) => {
     const siteUrl = getSiteUrl(c);
-    const incidents = await listIncidents(c.env.DB);
+    const metadata = c.env.DB ? await c.env.DB.prepare(`SELECT d.slug,d.published_at,d.created_at
+      FROM draft_posts d JOIN ingested_events e ON e.id=d.event_id WHERE d.status='published'
+      ORDER BY COALESCE(d.published_at,d.created_at) DESC LIMIT 45000`)
+      .all<{ slug: string | null; published_at: string | null; created_at: string }>() : { results: [] };
+    const incidents = metadata.results;
     const nowIso = new Date().toISOString();
-    const newestIncidentDate = incidents[0]?.sortDate;
+    const newestIncidentDate = incidents[0]?.published_at ?? incidents[0]?.created_at;
     const parsedNewestIncidentDate = newestIncidentDate ? Date.parse(newestIncidentDate) : Number.NaN;
     const incidentsLastmod = Number.isNaN(parsedNewestIncidentDate) ? nowIso : new Date(parsedNewestIncidentDate).toISOString();
     const incidentListPages = Math.max(1, Math.ceil(incidents.length / INCIDENTS_PER_PAGE));
@@ -1033,7 +1052,7 @@ export function createApp() {
       lastmod: incidentsLastmod,
     }));
     const incidentUrls = incidents.map((incident) => {
-      const parsedSort = Date.parse(incident.sortDate);
+      const parsedSort = Date.parse(incident.published_at ?? incident.created_at);
       const incidentLastmod = Number.isNaN(parsedSort) ? nowIso : new Date(parsedSort).toISOString();
       return { path: `/incidents/${incident.slug}`, lastmod: incidentLastmod };
     });
@@ -1197,6 +1216,7 @@ ${entries}
       const result = await runIngestionPipeline(c.env, fetch, { mode, runId: `admin-${Date.now()}` });
       c.header('cache-control', 'no-store, max-age=0');
       c.header('pragma', 'no-cache');
+      if (c.env.DB && result.status === 'failed') return c.json({ ok: false, error: result.errors.join('; '), result }, 500);
       return c.json({ ok: true, result });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Ingestion run failed';
@@ -1204,6 +1224,39 @@ ${entries}
       c.header('pragma', 'no-cache');
       return c.json({ ok: false, error: message }, 500);
     }
+  });
+
+  app.get('/api/admin/ingestion/health', async (c) => {
+    if (!isAdminAuthorized(c)) return c.json({ ok: false, error: 'Unauthorized' }, 401);
+    c.header('cache-control', 'no-store');
+    try { return c.json({ ok: true, health: await ingestionHealth(c.env) }); }
+    catch { return c.json({ ok: false, error: 'Ingestion health unavailable' }, 503); }
+  });
+
+  app.post('/api/admin/ingestion/backfill', async (c) => {
+    if (!isAdminAuthorized(c)) return c.json({ ok: false, error: 'Unauthorized' }, 401);
+    if (!c.env.DB) return c.json({ ok: false, error: 'DB not configured' }, 503);
+    c.header('cache-control', 'no-store');
+    const parsed = backfillSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ ok: false, error: 'Invalid backfill date range or sources' }, 400);
+    const { dryRun, ...backfill } = parsed.data;
+    try {
+      if (dryRun) return c.json({ ok: true, preview: await previewBackfill(c.env, fetch, backfill) });
+      const active = await readState<{ enabled: boolean; from: string; to: string }>(c.env.DB, 'backfill:active');
+      if (active?.enabled && (active.from !== backfill.from || active.to !== backfill.to))
+        return c.json({ ok: false, error: 'A different recovery is already active. Stop it before changing the range.' }, 409);
+      await writeState(c.env.DB, 'backfill:active', { ...backfill, enabled: true });
+      return c.json({ ok: true, result: await runIngestionPipeline(c.env, fetch, { mode: 'manual', backfill }) });
+    } catch (error) { return c.json({ ok: false, error: error instanceof Error ? error.message : 'Backfill failed' }, 500); }
+  });
+
+  app.post('/api/admin/ingestion/backfill/stop', async (c) => {
+    if (!isAdminAuthorized(c)) return c.json({ ok: false, error: 'Unauthorized' }, 401);
+    if (!c.env.DB) return c.json({ ok: false, error: 'DB not configured' }, 503);
+    c.header('cache-control', 'no-store');
+    const active = await readState<Record<string, unknown>>(c.env.DB, 'backfill:active');
+    if (active) await writeState(c.env.DB, 'backfill:active', { ...active, enabled: false });
+    return c.json({ ok: true, note: 'Future recovery scans stopped; a currently running page may finish.' });
   });
 
   app.post('/api/admin/ingestion/normalize-summaries', async (c) => {
@@ -1427,13 +1480,11 @@ ${entries}
       .bind(id, slug, now)
       .run();
 
-    let enrichmentTriggered = false;
+    const enrichmentTriggered = true;
     let enrichmentError: string | null = null;
     try {
       await enrichPublishedDraft(c.env, id);
-      enrichmentTriggered = true;
     } catch (error) {
-      enrichmentTriggered = true;
       enrichmentError = error instanceof Error ? error.message : 'enrichment failed';
     }
 
@@ -1451,16 +1502,16 @@ ${entries}
       return c.json({ ok: false, error: 'DB not configured' }, 503);
     }
 
-    const deleteDrafts = await c.env.DB.prepare('DELETE FROM draft_posts').run();
-    const deleteEvents = await c.env.DB.prepare('DELETE FROM ingested_events').run();
-
     c.header('cache-control', 'no-store, max-age=0');
     c.header('pragma', 'no-cache');
-    return c.json({
-      ok: true,
-      deletedDrafts: deleteDrafts.meta?.changes ?? 0,
-      deletedEvents: deleteEvents.meta?.changes ?? 0,
-    });
+    const owner = `reset-${crypto.randomUUID()}`;
+    if (!await acquireLease(c.env.DB, owner, new Date().toISOString())) return c.json({ ok: false, error: 'Ingestion is running' }, 409);
+    try {
+      const deleted = await c.env.DB.batch(['DELETE FROM draft_posts', 'DELETE FROM ingested_events',
+        'DELETE FROM ingestion_items', 'DELETE FROM ingestion_runs'].map((sql) => c.env.DB!.prepare(sql))
+        .concat(c.env.DB.prepare('DELETE FROM ingestion_state WHERE key!=?1').bind(LEASE_KEY)));
+      return c.json({ ok: true, deletedDrafts: deleted[0].meta.changes, deletedEvents: deleted[1].meta.changes });
+    } finally { await releaseLease(c.env.DB, owner); }
   });
 
   app.post('/api/admin/incidents/clear', async (c) => {

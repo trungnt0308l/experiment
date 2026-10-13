@@ -12,6 +12,7 @@ export type IncidentEntry = {
   sortDate: string;
   incidentDate: string;
   publishedDate: string;
+  publicationDateIso?: string;
   summary: string;
   impact: string;
   remedy: string[];
@@ -1100,7 +1101,7 @@ export function renderIncidentsPage(incidents: IncidentEntry[], meta: IncidentsP
             const safeSlug = encodeURIComponent(item.slug);
             return `<article style="border:1px solid #ddd6c8;background:#fffdf9;padding:16px;margin-bottom:12px;">
         <h2 style="margin:0 0 8px;font-size:24px;"><a href="/incidents/${safeSlug}" style="color:#1a1815;text-decoration:none;">${safeTitle}</a></h2>
-        <p style="margin:0 0 8px;font-size:14px;color:#5f584f;">Incident date: ${safeIncidentDate} | Published: ${safePublishedDate}</p>
+        <p style="margin:0 0 8px;font-size:14px;color:#5f584f;">Source disclosure: ${safeIncidentDate} | Published on Radar: ${safePublishedDate}</p>
         <p style="margin:0 0 8px;">${safeSummary}</p>
         <p style="margin:0;"><a href="/incidents/${safeSlug}" style="color:#135d7a;">Read details</a></p>
       </article>`;
@@ -1296,7 +1297,7 @@ export function renderIncidentDetailPage(
   });
   const incidentUrl = absoluteUrl(siteUrl, `/incidents/${incident.slug}`);
   const isoDate = (() => {
-    const candidate = incident.sortDate ?? '';
+    const candidate = incident.publicationDateIso ?? incident.sortDate ?? '';
     const parsed = Date.parse(candidate);
     if (Number.isNaN(parsed)) {
       return undefined;
@@ -1413,7 +1414,8 @@ export function renderIncidentDetailPage(
     <p><a href="/incidents">Back to incidents</a></p>
     <article>
       <h1>${safeTitle}</h1>
-      <p class="meta">Incident date: ${safeIncidentDate} | Published: ${safePublishedDate} | Source: ${safeSourceKind} | Classification confidence: ${safeConfidence}</p>
+      <p class="meta">Source disclosure: ${safeIncidentDate} | Published on Radar: ${safePublishedDate} | Source: ${safeSourceKind} | Classification confidence: ${safeConfidence}</p>
+      <p class="meta">Source disclosure is when the advisory appeared in this source (or was added to a catalog), not a confirmed date of exploitation. Radar publication is when this page became available.</p>
       <div class="coverage-note">${toSafeText(coverageNote)} <a href="/methodology">Review methodology</a>.</div>
       <p>${safeSummary}</p>
       ${imageCards}
@@ -1731,11 +1733,22 @@ export function renderAdminOpsPage(siteUrl?: string): string {
       <div>
         <button class="btn" id="run-btn" type="button">Run Ingestion Now</button>
         <button class="btn secondary" id="load-ingestions-btn" type="button">Load Ingestions</button>
+        <button class="btn secondary" id="health-btn" type="button">Check Source Health</button>
         <button class="btn secondary" id="normalize-summaries-btn" type="button">Normalize Long Summaries</button>
         <button class="btn secondary" id="clear-incidents-btn" type="button">Clear Incidents</button>
         <button class="btn warn" id="reset-ingestion-btn" type="button">Reset Ingestion DB</button>
       </div>
       <p id="status" class="muted" aria-live="polite"></p>
+      <div id="source-health" aria-live="polite"></div>
+      <details>
+        <summary>Recover historical advisories</summary>
+        <label for="backfill-from">Advisories disclosed since</label>
+        <input id="backfill-from" type="date" value="2026-05-01" />
+        <p class="muted">Preview matching advisories, then start a resumable recovery scan. Existing incidents are preserved; only qualifying high-severity advisories publish automatically.</p>
+        <button class="btn secondary" id="backfill-preview-btn" type="button">Preview Recovery</button>
+        <button class="btn" id="backfill-start-btn" type="button" disabled>Start Recovery</button>
+        <div id="backfill-preview" aria-live="polite"></div>
+      </details>
     </section>
 
     <section class="panel">
@@ -1755,6 +1768,13 @@ export function renderAdminOpsPage(siteUrl?: string): string {
     const normalizeSummariesBtn = document.getElementById('normalize-summaries-btn');
     const clearIncidentsBtn = document.getElementById('clear-incidents-btn');
     const resetIngestionBtn = document.getElementById('reset-ingestion-btn');
+    const healthBtn = document.getElementById('health-btn');
+    const sourceHealthEl = document.getElementById('source-health');
+    const backfillPreviewBtn = document.getElementById('backfill-preview-btn');
+    const backfillStartBtn = document.getElementById('backfill-start-btn');
+    const backfillFromEl = document.getElementById('backfill-from');
+    const backfillPreviewEl = document.getElementById('backfill-preview');
+    let previewedFrom = '';
 
     function setStatus(message, kind) {
       statusEl.textContent = message;
@@ -1781,7 +1801,7 @@ export function renderAdminOpsPage(siteUrl?: string): string {
     }
 
     function previewText(value, maxChars) {
-      const raw = String(value || '').replace(/\s+/g, ' ').trim();
+      const raw = String(value || '').replace(/\\s+/g, ' ').trim();
       if (raw.length <= maxChars) {
         return raw;
       }
@@ -1890,18 +1910,71 @@ export function renderAdminOpsPage(siteUrl?: string): string {
     }
 
     runBtn.addEventListener('click', async () => {
+      runBtn.disabled = true;
       try {
         setStatus('Running ingestion...', '');
         const body = await api('/api/admin/ingestion/run', { method: 'POST' });
         const r = body.result || {};
         await loadIngestions();
         setStatus(
-          'Done. fetched=' + (r.fetched || 0) + ', relevant=' + (r.relevant || 0) + ', inserted=' + (r.inserted || 0) + ', deduped=' + (r.deduped || 0) + ', drafts=' + (r.draftsCreated || 0) + ', llm_dedupe=' + (r.llmDedupeCalls || 0) + ', llm_enrich=' + (r.llmEnrichCalls || 0),
-          'ok'
+          (r.lockSkipped ? 'Another run is active.' : 'Run ' + (r.status || 'completed') + '. fetched=' + (r.fetched || 0) + ', inserted=' + (r.inserted || 0) + ', published=' + (r.draftsCreated || 0) + ', pending=' + (r.queuedForNextRun || 0) + ', stop=' + (r.stopReason || 'completed')) +
+          ((r.errors || []).length ? ' Errors: ' + r.errors.join('; ') : '') +
+          ((r.warnings || []).length ? ' Warnings: ' + r.warnings.join('; ') : ''),
+          r.status === 'healthy' ? 'ok' : 'err'
         );
       } catch (error) {
         setStatus(error.message || 'Request failed', 'err');
+      } finally {
+        runBtn.disabled = false;
       }
+    });
+
+    healthBtn.addEventListener('click', async () => {
+      healthBtn.disabled = true;
+      try {
+        const body = await api('/api/admin/ingestion/health');
+        const h = body.health;
+        sourceHealthEl.innerHTML = '<p>Ingestion: <strong>' + escapeHtml(h.status) + '</strong> | Pending: ' + Number(h.backlog || 0) + '</p>' +
+          '<p>Alerts: ' + (h.alertsEnabled && h.alertsConfigured ? 'configured' : 'not configured') + '</p>' +
+          (h.sources || []).map(s => '<p><strong>' + escapeHtml(s.source) + '</strong>: ' + escapeHtml(s.status || 'not scanned') +
+            ' | Last successful scan: ' + escapeHtml(s.lastSuccessAt || 'none') +
+            (s.cooldownUntil ? ' | Retry after: ' + escapeHtml(s.cooldownUntil) : '') + '</p>').join('') +
+          '<p>' + escapeHtml((h.errors || []).join('; ')) + '</p>' +
+          '<p>Historical high-severity records without drafts: ' + (h.orphanedHighSeverity || []).length + '. Review these individually in the ingestion list.</p>' +
+          (h.backfill ? '<p>Recovery: ' + (h.backfill.enabled ? 'active' : 'complete') + ' | ' + escapeHtml(h.backfill.from) + ' to ' + escapeHtml(h.backfill.to) + '</p>' : '');
+      } catch (error) { setStatus(error.message, 'err'); }
+      finally { healthBtn.disabled = false; }
+    });
+
+    backfillFromEl.addEventListener('change', () => { backfillStartBtn.disabled = true; previewedFrom = ''; });
+    let previewedTo = '';
+    async function recover(dryRun) {
+      if (!dryRun && previewedFrom !== backfillFromEl.value) throw new Error('Preview this date range first.');
+      const from = new Date(backfillFromEl.value + 'T00:00:00Z').toISOString();
+      if (dryRun) previewedTo = new Date().toISOString();
+      return api('/api/admin/ingestion/backfill', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to: previewedTo, sources: ['nvd', 'ghsa'], dryRun }) });
+    }
+    backfillPreviewBtn.addEventListener('click', async () => {
+      backfillPreviewBtn.disabled = true;
+      backfillStartBtn.disabled = true;
+      try {
+        const body = await recover(true);
+        previewedFrom = backfillFromEl.value;
+        backfillPreviewEl.innerHTML = '<p>' + escapeHtml(body.preview.note) + '</p>' +
+          '<p>' + escapeHtml([...(body.preview.errors || []), ...(body.preview.warnings || [])].join('; ')) + '</p>' +
+          (body.preview.candidates || []).map(e => '<p>' + escapeHtml(e.title) + ' | ' + escapeHtml(e.publishedAt || 'date unknown') + '</p>').join('');
+        backfillStartBtn.disabled = false;
+      } catch (error) { setStatus(error.message, 'err'); }
+      finally { backfillPreviewBtn.disabled = false; }
+    });
+    backfillStartBtn.addEventListener('click', async () => {
+      backfillStartBtn.disabled = true;
+      try {
+        const body = await recover(false);
+        setStatus('Recovery enabled. Run status: ' + body.result.status + '. Future scheduled runs will continue it. Check Source Health for progress.', body.result.status === 'failed' ? 'err' : 'ok');
+      }
+      catch (error) { setStatus(error.message, 'err'); }
     });
 
     loadIngestionsBtn.addEventListener('click', async () => {
