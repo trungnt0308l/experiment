@@ -208,6 +208,20 @@ async function executeRun(run: Run): Promise<void> {
   if (Date.now() >= run.deadline) run.result.stopReason = 'runtime_budget';
 }
 
+async function budgetedFetch(run: Run, fetchFn: typeof fetch): Promise<typeof fetch> {
+  const nvdRequests = (await readState<number[]>(run.env.DB, 'quota:nvd') ?? []).filter((time) => time > Date.now() - 30000);
+  return async (input, init) => {
+    if (++run.requests > (run.result.mode === 'cron' ? 20 : 40)) throw new Error('Source request budget exhausted');
+    if (String(input).startsWith('https://services.nvd.nist.gov/')) {
+      while (nvdRequests.length && nvdRequests[0] <= Date.now() - 30000) nvdRequests.shift();
+      if (nvdRequests.length >= (run.env.NVD_API_KEY ? 50 : 5)) throw new SourceHttpError(429, 60000, 'NVD local request quota reached; scan resumes next run');
+      nvdRequests.push(Date.now());
+      await writeState(run.env.DB, 'quota:nvd', nvdRequests);
+    }
+    return fetchFn(input, init);
+  };
+}
+
 export async function runDurableIngestion(env: EnvBindings, fetchFn: typeof fetch = fetch,
   options: IngestionRunOptions = {}): Promise<IngestionRunResult> {
   const result = emptyResult(options.mode ?? 'manual');
@@ -217,23 +231,12 @@ export async function runDurableIngestion(env: EnvBindings, fetchFn: typeof fetc
   const caps = resolveRuntimeCaps(env, result.mode);
   const run: Run = { env: { ...env, DB: env.DB }, fetchFn, options, result,
     deadline: Date.now() + caps.maxRuntimeMs, writes: 0, requests: 0, startedAt };
-  const nvdRequests: number[] = [];
-  run.fetchFn = async (input, init) => {
-    if (++run.requests > (result.mode === 'cron' ? 20 : 40)) throw new Error('Source request budget exhausted');
-    if (String(input).startsWith('https://services.nvd.nist.gov/')) {
-      while (nvdRequests.length && nvdRequests[0] <= Date.now() - 30000) nvdRequests.shift();
-      if (nvdRequests.length >= (env.NVD_API_KEY ? 50 : 5)) throw new SourceHttpError(429, 60000, 'NVD local request quota reached; scan resumes next run');
-      nvdRequests.push(Date.now());
-      await writeState(run.env.DB, 'quota:nvd', nvdRequests);
-    }
-    return fetchFn(input, init);
-  };
   let acquired = false;
   try {
     acquired = await acquireLease(env.DB, runId, startedAt);
     if (!acquired) { result.lockSkipped = true; result.status = 'locked'; return result; }
     await writeState(env.DB, `run:active:${result.mode}`, { runId, startedAt });
-    nvdRequests.push(...(await readState<number[]>(env.DB, 'quota:nvd') ?? []).filter((time) => time > Date.now() - 30000));
+    run.fetchFn = await budgetedFetch(run, fetchFn);
     await executeRun(run);
     await saveRun(run, runId);
   } catch (error) {

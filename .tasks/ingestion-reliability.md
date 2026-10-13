@@ -1,11 +1,11 @@
 # Task: ingestion-reliability
 
 ## Meta
-- **Status**: REVIEW
+- **Status**: DONE
 - **Branch**: fix/ingestion-reliability
 - **PR**: https://github.com/trungnt0308l/experiment/pull/3
 - **Created**: 2026-10-13T21:50:33+07:00
-- **Last Updated**: 2026-10-13T21:50:33+07:00
+- **Last Updated**: 2026-10-13T23:21:00+07:00
 
 ## Objective
 Implement the approved ingestion robustness plan: complete collection, recoverable work, authoritative source metadata, archive access, operational health/alerts, verification, and controlled recovery of the incident gap.
@@ -18,7 +18,7 @@ Implement the approved ingestion robustness plan: complete collection, recoverab
 - [x] Add deterministic regression, integration, and recovery tests; CI and coverage
 - [x] Verify behavior and prepare a reviewed backfill preview
 - [x] Update requirements/docs and perform PR self-review
-- [ ] Commit, push, create PR, and carry out authorized production rollout/recovery where access permits
+- [x] Commit, push, create PR, and carry out authorized production rollout/recovery where access permits
 
 ## Progress Log
 - [2026-10-13T21:50:33+07:00] User requested implementation of the completed robustness plan. Read lessons, PRD, audit context, and implementation recommendations. Main remains `cb7b707`; prior audit is retained on its own branch/PR. Existing tracked Vitest cache changes are preserved and excluded from task commits.
@@ -32,6 +32,8 @@ Implement the approved ingestion robustness plan: complete collection, recoverab
 - [2026-10-13T23:14+07:00] Applied additive migration 0007 to production and deployed Worker version `7926f847-63da-4b58-8ff6-cf167bc2a8a1` from implementation commit `3ce14d4`. All seven existing secret names retained and hourly trigger unchanged. Public smoke checks passed: homepage, admin controls, archive page 18, old detail URL, sitemap, and unauthorized health 401. Latest known incident keeps source Aug 18 and original Radar Oct 10; JSON-LD now uses Oct 10 Radar publication.
 - [2026-10-13T23:15+07:00] Started the reviewed May 1–Oct 13 recovery using the same compiled pipeline and an authenticated parameterized D1 operator adapter (no admin secret read or changed). Initial bounded run fetched 779 records, inserted 33 incidents and published 21; 249 durable records remain queued with no processing failures/retries. Source quota/runtime stops are explicit and resumable. Production counts increased from 543 events/175 pages to 576 events/196 pages. Recovery is enabled for scheduled continuation; it is NOT complete. No old pre-May orphan was blindly published. PR #3 created; both Windows push/PR CI jobs passed at code commit `3ce14d4`.
 - [2026-10-13T23:19+07:00] Reviewed constrained recovery progress and isolated NVD keyword rotation per job to prevent starvation with one remaining request. Added regression across four runs. Intentional local quota pauses remain visible in health but do not trigger outage notification noise; real HTTP errors, rejected tokens, stale heartbeats and aged backlog still alert.
+- [2026-10-13T23:21+07:00] Final code commit `50db85d` pushed to PR #3 and deployed as Worker version `1d21b0de-5e8a-46f6-93b0-8db13ec86423`; cron remains hourly. Windows verification: 99 tests pass, typecheck/lint pass, coverage 80.40% lines overall (durable runtime 97.87%; network/storage/alerts/enrichment 100% lines), dependency audit zero vulnerabilities. Recovered detail URL returns 200 with original May source disclosure and Oct 13 Radar publication. Waiting for final Windows CI results before completion handoff. Recovery stays enabled with 249 pending records; no destructive production reset/rollback performed.
+- [2026-10-13T23:22+07:00] Both Windows CI jobs for `50db85d` passed. Implementation and initial controlled recovery are complete; historical scanning/processing intentionally continues through the deployed hourly scheduler. Extracted request-budget setup into its own small helper for the project function-size convention, with no behavior change; final tests/deployment are repeated before handoff. Tracked node_modules/tool-cache changes are excluded from commits; no credential or binary tooling artifacts are included in PR #3.
 
 ## Verification Checklist
 - [x] Pagination catches current and historical advisories without dropping timestamp ties

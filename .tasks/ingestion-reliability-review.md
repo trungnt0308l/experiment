@@ -35,12 +35,13 @@ Replaces cursor-only collection with durable source inbox/checkpoints, retryable
 
 ### Verification
 - Windows Node 24.21.0; typecheck, ESLint and tests pass; Worker deployed successfully. Final verification includes 99 tests and the independent rotation/intentional-quota alert regressions.
-- Latest coverage before the alert regression: 80.38% lines overall; new durable runtime 97.87%, storage/network/alerts/enrichment 100% lines.
+- Final coverage: 80.40% lines overall; new durable runtime 97.87%, storage/network/alerts/enrichment 100% lines.
 - Real D1 simulator: all migrations, competing leases, owned release, idempotent stage/draft writes pass.
 - Local browser: labelled health/recovery controls, stale-heartbeat warning, recovery disabled until preview, script compilation pass. Only favicon 404 noted; no application console errors.
 - Production version/bindings inspected; only additive migration 0007 pending; rollback version/bookmark recorded in task file.
 - Live first-page recovery preview passed: 376 fetched, 260 unique matching candidates, 169 source-high. Candidates include existing records; preview is not a gap count or publication guarantee.
 - Production migration/deployment/smoke checks pass; initial recovery published 21 additional pages and retained 249 pending records for scheduled continuation. Recovery is ongoing. Operator notifications and the next actual scheduler invocation have not yet been observed in production; unit/integration checks cover those paths. Intentional local quota pauses do not send outage alerts.
+- Both Windows GitHub CI jobs passed for the deployed fair-recovery code. Request-budget setup was subsequently extracted into a small helper without changing behavior, and final verification/deployment is repeated for that refactor.
 
 ### Suggestions / Follow-up
 1. Configure independent authenticated heartbeat monitoring; an absent scheduler cannot self-alert.
