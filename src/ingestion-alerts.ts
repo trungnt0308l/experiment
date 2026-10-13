@@ -7,10 +7,11 @@ import { sha256Hex } from './ingestion';
 export async function sendIngestionAlerts(env: EnvBindings, fetchFn: typeof fetch = fetch): Promise<void> {
   if (env.INGESTION_ALERTS_ENABLED !== 'true' || !env.DB) return;
   const health = await ingestionHealth(env);
-  if (!health.errors.length) return;
-  const text = ['AI Security Radar: ingestion needs attention', ...health.errors,
+  const issues = health.errors.filter((error) => !/local request quota reached|Source request budget exhausted|cooling down until/.test(error));
+  if (!issues.length) return;
+  const text = ['AI Security Radar: ingestion needs attention', ...issues,
     `Pending records: ${health.backlog}`, 'Review source status at https://aisecurityradar.com/admin/ops'].join('\n').slice(0, 3500);
-  const fingerprint = await sha256Hex([...health.errors].sort().join('\n'));
+  const fingerprint = await sha256Hex([...issues].sort().join('\n'));
   const deliveries: Array<{ channel: string; url: string; init: RequestInit }> = [];
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) deliveries.push({ channel: 'telegram',
     url: `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, init: {

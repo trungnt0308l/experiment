@@ -3,7 +3,7 @@
 ## Meta
 - **Status**: REVIEW
 - **Branch**: fix/ingestion-reliability
-- **PR**: Pending
+- **PR**: https://github.com/trungnt0308l/experiment/pull/3
 - **Created**: 2026-10-13T21:50:33+07:00
 - **Last Updated**: 2026-10-13T21:50:33+07:00
 
@@ -29,6 +29,9 @@ Implement the approved ingestion robustness plan: complete collection, recoverab
 - [2026-10-13] Production Worker versions remain inaccessible with existing OAuth. Requested the additional `workers_scripts:write` scope using Wrangler login; the browser authorization request timed out before a callback. No production database migration, deployment, or backfill has been performed.
 - [2026-10-13T23:03+07:00] User completed the fresh authorization. Worker-script access now works; recorded rollback version `2492dcc6-8ac3-4bd6-abee-fa4daa7fe633` and pre-rollout D1 bookmark `000073cc-00000000-00005103-e59da5db13b35cad5be11b23b25a710a`. Production has only migration 0007 outstanding, and existing operator notification secret names are configured. Browser health/recovery controls passed against a separate local D1 database. Latest checks: 93 tests, types, lint, and dry-run build pass.
 - [2026-10-13T23:11+07:00] Live read-only preview caught GitHub's timestamp-range rejection; corrected calendar-date query contract, explicit reviewed/non-withdrawn filtering, and incidental AI-tooling discovery classification. Successful preview: 376 fetched records, 260 unique matching candidates (7 GHSA, 253 NVD), including 169 source-high candidates. This is a first-page sample and includes existing records, not a missing/new publication count. Final tests now 97 passed; lint/types pass. Added reset lease/atomic durable cleanup and a recovery-stop endpoint. Updated PRD/README and completed senior self-review.
+- [2026-10-13T23:14+07:00] Applied additive migration 0007 to production and deployed Worker version `7926f847-63da-4b58-8ff6-cf167bc2a8a1` from implementation commit `3ce14d4`. All seven existing secret names retained and hourly trigger unchanged. Public smoke checks passed: homepage, admin controls, archive page 18, old detail URL, sitemap, and unauthorized health 401. Latest known incident keeps source Aug 18 and original Radar Oct 10; JSON-LD now uses Oct 10 Radar publication.
+- [2026-10-13T23:15+07:00] Started the reviewed May 1–Oct 13 recovery using the same compiled pipeline and an authenticated parameterized D1 operator adapter (no admin secret read or changed). Initial bounded run fetched 779 records, inserted 33 incidents and published 21; 249 durable records remain queued with no processing failures/retries. Source quota/runtime stops are explicit and resumable. Production counts increased from 543 events/175 pages to 576 events/196 pages. Recovery is enabled for scheduled continuation; it is NOT complete. No old pre-May orphan was blindly published. PR #3 created; both Windows push/PR CI jobs passed at code commit `3ce14d4`.
+- [2026-10-13T23:19+07:00] Reviewed constrained recovery progress and isolated NVD keyword rotation per job to prevent starvation with one remaining request. Added regression across four runs. Intentional local quota pauses remain visible in health but do not trigger outage notification noise; real HTTP errors, rejected tokens, stale heartbeats and aged backlog still alert.
 
 ## Verification Checklist
 - [x] Pagination catches current and historical advisories without dropping timestamp ties
@@ -38,8 +41,8 @@ Implement the approved ingestion robustness plan: complete collection, recoverab
 - [x] Archive and detail pages retain access beyond 200 records
 - [x] Source failures, backlog, and stale runs are visible and alertable
 - [x] Full deterministic tests, typecheck, lint, build, integration, and coverage checks pass
-- [ ] Backfill preview/recovery results and production constraints documented
+- [x] Backfill preview/recovery results and production constraints documented
 - [x] PRD/docs updated and self-review completed
 
 ## Issues / Blockers
-- Cloudflare Worker and D1 access verified after user approved the additional scope. Rollout/recovery verification remains pending; production baseline is 543 events and 175 published pages.
+- Implementation is deployed and recovery is running, not finished. Next normal hourly execution after the initial run is 2026-10-13T17:00Z. Existing GHSA source token still needs rotation; public fallback is implemented. An independent authenticated heartbeat monitor is not configured by this task. Operator alert delivery and the next actual scheduler invocation are not yet observed in production. Normal safety/source limits remain enabled.

@@ -85,6 +85,16 @@ describe('operator safety and visibility', () => {
     expect(calls).toBe(2);
   });
 
+  test('intentional quota pauses remain visible without sending outage alerts', async () => {
+    const fixture = createTestDb();
+    await writeState(fixture.db, 'run:latest:cron', { finishedAt: new Date().toISOString() });
+    await writeState(fixture.db, 'health:nvd', { errors: ['NVD local request quota reached; scan resumes next run'], warnings: [] });
+    let calls = 0;
+    await sendIngestionAlerts({ DB: fixture.db, INGESTION_ALERTS_ENABLED: 'true', TELEGRAM_BOT_TOKEN: 'test-token', TELEGRAM_CHAT_ID: '123' },
+      async () => { calls += 1; return new Response(''); });
+    expect(calls).toBe(0);
+  });
+
   test('the admin recovery controls render valid executable JavaScript', () => {
     const html = renderAdminOpsPage();
     const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map((match) => match[1]);

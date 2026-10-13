@@ -90,15 +90,17 @@ async function scanSource(run: Run, source: SourceEvent['source']): Promise<void
     lastSuccessAt: old?.lastSuccessAt, errors: [], warnings: [], incomplete: false };
   const queries = [...sourceQueries(source, run.env)];
   if (source === 'nvd') {
-    const turn = await readState<number>(run.env.DB, 'scan:turn:nvd') ?? 0;
+    const turnKey = run.options.backfill ? `backfill:turn:nvd:${run.options.backfill.from}:${run.options.backfill.to}` : 'scan:turn:nvd';
+    const turn = await readState<number>(run.env.DB, turnKey) ?? 0;
     queries.push(...queries.splice(0, turn % queries.length));
-    await writeState(run.env.DB, 'scan:turn:nvd', turn + 1);
+    await writeState(run.env.DB, turnKey, turn + 1);
   }
   const worker = async () => { while (queries.length) {
     const query = queries.shift()!;
     if (health.cooldownUntil) { health.incomplete = true; break; }
     try { health.incomplete = (await scanQuery(run, source, query, health)) || health.incomplete; }
     catch (error) {
+      health.incomplete = true;
       const message = `${source === 'nvd' ? `NVD keyword "${query}"` : source}: ${error instanceof Error ? error.message : 'source failed'}`;
       health.errors.push(message); run.result.errors.push(message); run.result.sourceStats[source].errors += 1;
       if (error instanceof SourceHttpError && (error.status === 429 || error.status === 403))

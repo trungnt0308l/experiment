@@ -93,3 +93,9 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: GitHub advisory date filters accept calendar-date search ranges, not these millisecond timestamp ranges; reviewed-advisory selection also needs to be explicit.
 - **Fix applied**: Use inclusive UTC YYYY-MM-DD ranges with durable ID deduplication, explicitly request reviewed advisories, add a request-contract regression, and repeat the live preview before rollout.
 - **Rule going forward**: Verify representative source URLs against live read-only APIs before deploying connector changes; mocks must assert request contracts, not only response handling.
+
+## [2026-10-13] ingestion-reliability: Shared scheduling cursor can starve recovery
+- **What went wrong**: Review of the first recovery quota stop found that incrementing one rotation cursor for both normal and historical scans could repeatedly give the sole remaining request to alternating keywords.
+- **Root cause**: Two consumers advanced the same four-query rotation, producing a two-step cycle instead of fair independent progression.
+- **Fix applied**: Keep job-specific historical rotation independent of normal scans; a four-run regression proves every historical keyword receives a request under a one-request remainder.
+- **Rule going forward**: Separate fairness cursors across competing workloads and test constrained-budget progress across multiple runs, not just a single successful scan.

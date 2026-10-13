@@ -31,14 +31,16 @@ Replaces cursor-only collection with durable source inbox/checkpoints, retryable
 9. Live GitHub preview rejected full timestamp ranges despite mocks accepting them: switched to inclusive UTC calendar-date ranges and explicit reviewed advisory filtering, and added a contract regression.
 10. Reset would leave completed durable work behind: explicit reset now atomically clears inbox/checkpoints under the owned ingestion lease; no production reset was executed.
 11. Live full-description preview exposed non-AI vulnerabilities discovered using AI tooling: exclude incidental discovery/acknowledgement text from classification while retaining source evidence; verified affected AI products still qualify. Explicitly exclude withdrawn GitHub advisories from new collection.
+12. Post-rollout quota review caught shared normal/backfill keyword rotation potentially starving alternating historical queries: use independent job-specific rotations and test all four queries with only one remaining request per run. Source errors explicitly mark scan incomplete.
 
 ### Verification
-- Windows Node 24.21.0; typecheck, ESLint, 97 tests and Worker dry-run build pass.
-- Coverage before final live-contract regressions: 80.33% lines overall; new durable runtime 97.84%, storage/network/alerts/enrichment 100% lines. Coverage is refreshed during final verification.
+- Windows Node 24.21.0; typecheck, ESLint and tests pass; Worker deployed successfully. Final verification includes 99 tests and the independent rotation/intentional-quota alert regressions.
+- Latest coverage before the alert regression: 80.38% lines overall; new durable runtime 97.87%, storage/network/alerts/enrichment 100% lines.
 - Real D1 simulator: all migrations, competing leases, owned release, idempotent stage/draft writes pass.
 - Local browser: labelled health/recovery controls, stale-heartbeat warning, recovery disabled until preview, script compilation pass. Only favicon 404 noted; no application console errors.
 - Production version/bindings inspected; only additive migration 0007 pending; rollback version/bookmark recorded in task file.
 - Live first-page recovery preview passed: 376 fetched, 260 unique matching candidates, 169 source-high. Candidates include existing records; preview is not a gap count or publication guarantee.
+- Production migration/deployment/smoke checks pass; initial recovery published 21 additional pages and retained 249 pending records for scheduled continuation. Recovery is ongoing. Operator notifications and the next actual scheduler invocation have not yet been observed in production; unit/integration checks cover those paths. Intentional local quota pauses do not send outage alerts.
 
 ### Suggestions / Follow-up
 1. Configure independent authenticated heartbeat monitoring; an absent scheduler cannot self-alert.

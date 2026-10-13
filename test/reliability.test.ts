@@ -244,6 +244,25 @@ describe('source completeness and metadata', () => {
     expect(fixture.sqlite.prepare('SELECT count(*) AS count FROM draft_posts').get()?.count).toBe(1);
     expect(JSON.parse(fixture.state.get('backfill:active')!.value).enabled).toBe(false);
   });
+
+  test('historical NVD queries rotate independently when normal scans leave only one request per run', async () => {
+    const fixture = createTestDb();
+    const range = { from: '2026-02-01T00:00:00.000Z', to: '2026-02-02T00:00:00.000Z', sources: ['nvd'], enabled: true };
+    fixture.sqlite.prepare('INSERT INTO ingestion_state(key,value,updated_at) VALUES (?,?,?)')
+      .run('backfill:active', JSON.stringify(range), recent());
+    const seen = new Set<string>();
+    const fetchFn: typeof fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get('pubStartDate') === range.from) seen.add(url.searchParams.get('keywordSearch')!);
+      return emptyFetch(input);
+    };
+    for (let run = 0; run < 4; run += 1) {
+      fixture.sqlite.exec("DELETE FROM ingestion_state WHERE key IN ('quota:nvd','health:nvd')");
+      await runIngestionPipeline(envFor(fixture.db), fetchFn, { mode: 'cron' });
+    }
+    expect([...seen].sort()).toEqual(['artificial intelligence', 'llm', 'machine learning', 'prompt injection']);
+    expect(JSON.parse(fixture.state.get('backfill:active')!.value).enabled).toBe(false);
+  });
 });
 
 test('response deadlines include a stalled body after headers arrive', async () => {
