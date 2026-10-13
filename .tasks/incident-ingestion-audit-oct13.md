@@ -1,14 +1,14 @@
 # Task: incident-ingestion-audit-oct13
 
 ## Meta
-- **Status**: DONE
+- **Status**: REVIEW
 - **Branch**: chore/incident-ingestion-audit-oct13
-- **PR**: Not created (GitHub push blocked by unavailable credentials)
+- **PR**: Pending expanded robustness review
 - **Created**: 2026-10-13
 - **Last Updated**: 2026-10-13
 
 ## Objective
-Explain the low incident volume since May and the latest incident's August 18 incident date versus October 10 publication date using source, database, and code evidence.
+Explain the low incident volume and publication delay, then investigate and prioritize improvements to ingestion reliability, recovery, and operational visibility.
 
 ## Plan
 - [x] Read lessons, requirements, and earlier ingestion investigations; inspect repository status
@@ -18,6 +18,9 @@ Explain the low incident volume since May and the latest incident's August 18 in
 - [x] Run existing tests and add diagnostic regression tests if needed
 - [x] Verification
 - [x] PR self-review and record findings
+- [x] Extend review to cursor correctness, retries, concurrent runs, source isolation, and operational visibility
+- [x] Reproduce additional recovery defects and write a prioritized robustness plan
+- [ ] Verify expanded diagnostic tests and publish the review PR
 
 ## Progress Log
 - [2026-10-13] Started investigation in `D:/Working/cursor/experiment`; initial branch `main` was clean and matched the local `origin/main` reference. Read `.tasks/lessons.md`, root `PRD.md`, and previous March ingestion investigations.
@@ -32,6 +35,10 @@ Explain the low incident volume since May and the latest incident's August 18 in
 - [2026-10-13] The first isolated-clock run exposed a test harness error: a frozen Date prevented runtime-budget checks from observing elapsed time. Replaced it with a shifted advancing clock and appended the lesson ledger.
 - [2026-10-13] Verification completed: 71/71 tests pass with the task-specific advancing calendar, typecheck and audit script syntax checks pass, and raw V8 coverage was captured under ignored `.wrangler/audit-coverage`. Saved detailed findings and senior self-review. No application code, production database records, or product requirements were changed.
 - [2026-10-13] Committed findings, diagnostic tests, verification helpers, and lessons as `96ad13f`. Attempted `git -c http.sslBackend=openssl push -u origin chore/incident-ingestion-audit-oct13`; Git Credential Manager could not persist/retrieve credentials and non-interactive username prompting failed. The diagnostic objective is complete; publishing the branch/PR is blocked by GitHub authentication. Local tool cache changes under tracked `node_modules` remain excluded.
+- [2026-10-13] User authorized GitHub device login. Authentication succeeded with workspace-local ignored credentials, branch push succeeded, and rebase onto current main completed without changing commits. User expanded the task to investigate how to make the system better and more robust; reopened this audit to add failure-path review, diagnostic coverage, and a prioritized implementation plan before creating the PR.
+- [2026-10-13] Extended the review using the Workers skill, current Cloudflare documentation/types, source code, and SELECT-only production queries. Reproduced three additional recovery defects with mocked transient writes and timestamp ties. Follow-up heartbeat also reports NVD 429s; queried ten historical high-severity records without drafts and confirmed the archive currently holds 175 published entries.
+- [2026-10-13] Wrote the robustness plan with evidence, priorities, durable D1 work processing, source cooldowns, shared leases, data quality/provenance, operational alerts, archive growth, and four implementation stages with acceptance tests. Expanded verification passes: 74/74 tests with the isolated advancing clock and TypeScript checking. No production settings, incidents, or application behavior were changed.
+- [2026-10-13] Final expanded verification and self-review completed: 74 tests pass with raw V8 coverage collection; typecheck, audit syntax, and whitespace checks pass. Preparing the expanded investigation PR, including the previously completed production diagnosis and the new robustness plan.
 
 ## Verification Checklist
 - [x] Both requested explanations supported by direct evidence
@@ -44,4 +51,4 @@ Explain the low incident volume since May and the latest incident's August 18 in
 - Git HTTPS using Schannel fails with `SEC_E_NO_CREDENTIALS`; OpenSSL successfully pulled current main.
 - The default test command has five pre-existing date-dependent failures; all 71 tests pass with the isolated calendar setup.
 - Cloudflare Worker version listing is denied. Production D1 access and source verification succeeded, so this does not block the diagnosis.
-- GitHub branch push and PR creation are blocked by unavailable Git credentials; `gh auth status` also reports an invalid saved token. Findings and tests are committed locally.
+- Prior GitHub authentication blocker resolved: branch now exists on origin and GitHub CLI is authenticated via workspace-local ignored credentials.

@@ -124,3 +124,11 @@ These are proposed repairs, not changes performed in this diagnostic task.
 - Worker version listing was denied by Cloudflare. Conclusions about live operation rely on production D1 telemetry and upstream/public reads rather than inspecting a deployment version.
 
 Reproduce public checks: `node .tasks/incident-ingestion-audit-oct13-public.mjs`. Use normal Wrangler credentials for SELECT queries against `ingestion_state`, `ingested_events`, and `draft_posts`; do not run the ingestion trigger during a read-only audit.
+
+## Follow-up robustness investigation
+
+The user requested a broader reliability review after GitHub authorization. The branch was pushed successfully and the prioritized plan is in [the robustness review](incident-ingestion-audit-oct13-robustness.md).
+
+The next production heartbeat at `2026-10-13T14:00:50.156Z` additionally reports four NVD HTTP 429 failures while still recording `phase=completed`, reinforcing the need for source-specific status and rate-limit cooldowns. Production contains 175 published incidents and ten high-severity ingestions without drafts; all ten predate March 4, so the audit does not attribute them to the newly reproduced failure paths.
+
+Three new mocked tests reproduce cursor advancement past a failed event write, dropped records sharing a timestamp after a budget stop, and missing publication after a failed draft write. The expanded 74-test suite passes with the isolated advancing calendar; typecheck passes. These tests document existing defects and proposed repairs, not deployed fixes.

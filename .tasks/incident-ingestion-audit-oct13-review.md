@@ -2,7 +2,7 @@
 
 ### Summary
 
-Documents the verified causes of low incident volume and delayed NVD discovery, adds two mocked diagnostic tests, and provides a repeatable read-only public audit script and isolated verification clock.
+Documents the causes of low incident volume and delayed discovery, adds five mocked diagnostic tests, and provides a read-only audit script, isolated verification clock, and prioritized reliability plan grounded in source/runtime failure paths.
 
 ### Checklist
 
@@ -19,6 +19,8 @@ Documents the verified causes of low incident volume and delayed NVD discovery, 
 - [x] Findings distinguish confirmed observations from historical inferences
 - [x] No added dependencies
 - [x] No breaking product changes
+- [x] Recovery findings distinguish mocked failure reproductions from actual production outcomes
+- [x] Proposed repairs include validation criteria and a staged implementation sequence
 
 ### Issues Found
 
@@ -26,8 +28,10 @@ Documents the verified causes of low incident volume and delayed NVD discovery, 
 2. The first verification clock froze elapsed time. Corrected the harness, recorded the lesson, and verified all 71 tests.
 3. Wrangler and Vitest touched tracked local cache files under `node_modules`. Excluded these tool caches from the staged task changes.
 4. CISA staleness is not enough to prove missing AI advisories. The findings explicitly distinguish this unproven limitation from verified GHSA failure and NVD omissions.
+5. Three additional data-loss paths were reproduced in existing application behavior. They are tracked in the robustness plan for implementation; this PR contains diagnostic tests and does not present itself as a production repair.
+6. Follow-up production evidence shows NVD 429 failures and ten historical high-severity records without drafts. The plan covers rate-limit cooldowns and reviewed reconciliation without claiming a particular loss cause for the legacy records.
 
 ### Suggestions
 
-1. Implement the six ordered remediation items in the findings as separate, reviewable changes. This task establishes the diagnosis without changing deployed behavior.
+1. Implement the four staged releases in the robustness review as separate, reviewable changes. This task establishes the diagnosis and acceptance criteria without changing deployed behavior.
 2. Replace calendar-dependent fixtures in a future test-maintenance task so the default suite stays reliable.
