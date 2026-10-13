@@ -265,6 +265,62 @@ function createNormalizationDbFixture() {
   return { db, events, drafts };
 }
 
+describe('October ingestion diagnostic reproductions', () => {
+  test('reports rejected GitHub authentication while completing the remaining sources', async () => {
+    const fixture = createPipelineDbFixture();
+    const fallback = createFetchStub();
+    const fetchWithRejectedToken: typeof fetch = async (request, init) =>
+      String(request).includes('api.github.com/advisories')
+        ? jsonResponse({ message: 'Bad credentials' }, 401)
+        : fallback(request, init);
+
+    const result = await runIngestionPipeline(
+      { DB: fixture.db, ENABLE_HN_SOURCE: 'false', RSS_FEEDS: 'https://example.com/feed.xml' },
+      fetchWithRejectedToken,
+      { mode: 'cron', runId: 'audit-ghsa-rejected-token' }
+    );
+
+    expect(result.errors).toContain('GitHub advisories failed: 401');
+    expect(result.sourceStats.ghsa.errors).toBe(1);
+    expect(result.sourceStats.ghsa.fetched).toBe(0);
+    expect(result.stopReason).toBe('completed');
+    const heartbeat = JSON.parse(fixture.state.get('run:latest:cron')!.value);
+    expect(heartbeat.errors).toContain('GitHub advisories failed: 401');
+  });
+
+  test('reproduces newer NVD incidents staying undiscovered across repeated first-page polls', async () => {
+    const fixture = createPipelineDbFixture();
+    const fallback = createFetchStub();
+    const requests: URL[] = [];
+    const candidates = Array.from({ length: 7 }, (_, index) => ({
+      cve: {
+        id: `CVE-2026-${99001 + index}`,
+        published: new Date(Date.now() - (55 - index) * 86400000).toISOString(),
+        descriptions: [{ lang: 'en', value: `LLM vulnerability allows critical exploit ${index}` }],
+      },
+    }));
+    const pagedNvd: typeof fetch = async (request, init) => {
+      const url = new URL(String(request));
+      if (!url.hostname.includes('services.nvd.nist.gov')) return fallback(request, init);
+      requests.push(url);
+      if (url.searchParams.get('keywordSearch') !== 'llm') return jsonResponse({ vulnerabilities: [] });
+      const offset = Number(url.searchParams.get('startIndex') ?? 0);
+      const pageSize = Number(url.searchParams.get('resultsPerPage'));
+      return jsonResponse({ totalResults: candidates.length, startIndex: offset, resultsPerPage: pageSize,
+        vulnerabilities: candidates.slice(offset, offset + pageSize) });
+    };
+    const env = { DB: fixture.db, ENABLE_HN_SOURCE: 'false', RSS_FEEDS: 'https://example.com/feed.xml' };
+
+    const first = await runIngestionPipeline(env, pagedNvd, { mode: 'cron', runId: 'audit-nvd-first' });
+    const second = await runIngestionPipeline(env, pagedNvd, { mode: 'cron', runId: 'audit-nvd-repeat' });
+
+    expect(first.sourceStats.nvd.inserted).toBe(6);
+    expect(second.sourceStats.nvd.eligible).toBe(0);
+    expect(fixture.events.some((event) => event.external_id === candidates[6].cve.id)).toBe(false);
+    expect(requests.every((url) => !url.searchParams.has('startIndex'))).toBe(true);
+  });
+});
+
 describe('ingestion helpers', () => {
   test('scores AI security text as relevant', () => {
     const score = scoreIncidentRelevance(

@@ -75,3 +75,9 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: I added the run-state JSON shape quickly and did not check for overlapping keys in the spread payload.
 - **Fix applied**: Removed the duplicate explicit `mode` fields and re-ran `npm run typecheck` plus the full test suite.
 - **Rule going forward**: When building typed telemetry/state payloads with object spreads, scan for overlapping keys before leaving the edit phase.
+
+## [2026-10-13] incident-ingestion-audit-oct13: Diagnostic clock must preserve elapsed time
+- **What went wrong**: Freezing the verification clock made the runtime-budget test fail; the unmodified suite also has five failures because its February fixtures age out of the 60-day window by October.
+- **Root cause**: A frozen Date prevents real-time budget checks from observing elapsed time, while fixed source fixture dates drift relative to the actual clock.
+- **Fix applied**: Used a task-specific verification setup that shifts the calendar to February while allowing real wall time to advance. Kept production freshness rules and the default test command unchanged.
+- **Rule going forward**: When testing freshness and runtime budgets together, use a shifted advancing clock or explicitly advance the fake clock; distinguish baseline date-dependent failures from new regressions.
