@@ -1,11 +1,11 @@
 # Task: incident-ingestion-audit-oct13
 
 ## Meta
-- **Status**: REVIEW
+- **Status**: DONE
 - **Branch**: chore/incident-ingestion-audit-oct13
-- **PR**: Pending expanded robustness review
+- **PR**: https://github.com/trungnt0308l/experiment/pull/2
 - **Created**: 2026-10-13
-- **Last Updated**: 2026-10-13
+- **Last Updated**: 2026-10-13T21:44:16+07:00
 
 ## Objective
 Explain the low incident volume and publication delay, then investigate and prioritize improvements to ingestion reliability, recovery, and operational visibility.
@@ -20,7 +20,7 @@ Explain the low incident volume and publication delay, then investigate and prio
 - [x] PR self-review and record findings
 - [x] Extend review to cursor correctness, retries, concurrent runs, source isolation, and operational visibility
 - [x] Reproduce additional recovery defects and write a prioritized robustness plan
-- [ ] Verify expanded diagnostic tests and publish the review PR
+- [x] Verify expanded diagnostic tests and publish the review PR
 
 ## Progress Log
 - [2026-10-13] Started investigation in `D:/Working/cursor/experiment`; initial branch `main` was clean and matched the local `origin/main` reference. Read `.tasks/lessons.md`, root `PRD.md`, and previous March ingestion investigations.
@@ -39,6 +39,7 @@ Explain the low incident volume and publication delay, then investigate and prio
 - [2026-10-13] Extended the review using the Workers skill, current Cloudflare documentation/types, source code, and SELECT-only production queries. Reproduced three additional recovery defects with mocked transient writes and timestamp ties. Follow-up heartbeat also reports NVD 429s; queried ten historical high-severity records without drafts and confirmed the archive currently holds 175 published entries.
 - [2026-10-13] Wrote the robustness plan with evidence, priorities, durable D1 work processing, source cooldowns, shared leases, data quality/provenance, operational alerts, archive growth, and four implementation stages with acceptance tests. Expanded verification passes: 74/74 tests with the isolated advancing clock and TypeScript checking. No production settings, incidents, or application behavior were changed.
 - [2026-10-13] Final expanded verification and self-review completed: 74 tests pass with raw V8 coverage collection; typecheck, audit syntax, and whitespace checks pass. Preparing the expanded investigation PR, including the previously completed production diagnosis and the new robustness plan.
+- [2026-10-13T21:44:16+07:00] Committed the expanded review as `813a5c0`, pushed the branch, and opened PR #2: https://github.com/trungnt0308l/experiment/pull/2. Original diagnosis and expanded robustness investigation are complete; production repairs and reviewed backfill remain proposed work in the plan.
 
 ## Verification Checklist
 - [x] Both requested explanations supported by direct evidence
@@ -46,6 +47,7 @@ Explain the low incident volume and publication delay, then investigate and prio
 - [x] No type errors (no lint script configured)
 - [x] Manual production/source verification documented and executed
 - [x] PRD updated if scope changed (not applicable: no product change)
+- [x] Expanded robustness plan, diagnostic failure coverage, and review PR completed
 
 ## Issues / Blockers
 - Git HTTPS using Schannel fails with `SEC_E_NO_CREDENTIALS`; OpenSSL successfully pulled current main.
