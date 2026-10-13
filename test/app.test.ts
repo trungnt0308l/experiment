@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { createApp } from '../src/app';
+import { seedIncidentRows } from './helpers/db';
 
 type WaitlistApiResponse = {
   ok: boolean;
@@ -81,37 +82,11 @@ function makeLandingSampleDb(row: {
   severity: string | null;
   confidence?: number | null;
 }) {
-  return {
-    prepare(sql: string) {
-      const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
-      if (!compactSql.includes('from draft_posts d') || !compactSql.includes('join ingested_events e')) {
-        throw new Error(`Unexpected SQL: ${sql}`);
-      }
-      return {
-        all: async () => ({
-          results: [
-            {
-              draft_id: row.draft_id ?? 99,
-              slug: row.slug ?? 'ghsa-sample',
-              headline: row.headline ?? row.title,
-              published_at: '2026-02-25T00:00:00.000Z',
-              created_at: '2026-02-25T00:00:00.000Z',
-              title: row.title,
-              summary: row.summary,
-              url: row.url,
-              source: row.source,
-              severity: row.severity,
-              confidence: row.confidence ?? 0.86,
-              event_published_at: '2026-02-24T00:00:00.000Z',
-              enriched_summary: row.enriched_summary,
-              enriched_impact: null,
-              enriched_remedy_json: null,
-            },
-          ],
-        }),
-      };
-    },
-  } as unknown as D1Database;
+  return seedIncidentRows([{
+    ...row, draft_id: row.draft_id ?? 99, slug: row.slug ?? 'ghsa-sample', headline: row.headline ?? row.title,
+    published_at: '2026-02-25T00:00:00.000Z', created_at: '2026-02-25T00:00:00.000Z',
+    event_published_at: '2026-02-24T00:00:00.000Z',
+  }]);
 }
 
 function makeIncidentDetailDb(input: {
@@ -121,37 +96,13 @@ function makeIncidentDetailDb(input: {
   severity?: string;
   confidence?: number;
 }) {
-  return {
-    prepare(sql: string) {
-      const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
-      if (!compactSql.includes('from draft_posts d') || !compactSql.includes('join ingested_events e')) {
-        throw new Error(`Unexpected SQL: ${sql}`);
-      }
-      return {
-        all: async () => ({
-          results: [
-            {
-              draft_id: 1,
-              slug: 'sample-incident',
-              headline: input.title ?? 'Sample Incident Headline',
-              published_at: '2026-02-25T00:00:00.000Z',
-              created_at: '2026-02-25T00:00:00.000Z',
-              title: input.title ?? 'Sample Incident Headline',
-              summary: input.summary,
-              url: 'https://example.com/advisory',
-              source: input.source ?? 'ghsa',
-              severity: input.severity ?? 'high',
-              confidence: input.confidence ?? 0.91,
-              event_published_at: '2026-02-24T00:00:00.000Z',
-              enriched_summary: null,
-              enriched_impact: null,
-              enriched_remedy_json: null,
-            },
-          ],
-        }),
-      };
-    },
-  } as unknown as D1Database;
+  return seedIncidentRows([{
+    draft_id: 1, slug: 'sample-incident', headline: input.title ?? 'Sample Incident Headline',
+    published_at: '2026-02-25T00:00:00.000Z', created_at: '2026-02-25T00:00:00.000Z',
+    event_published_at: '2026-02-24T00:00:00.000Z', title: input.title ?? 'Sample Incident Headline',
+    summary: input.summary, source: input.source ?? 'ghsa', severity: input.severity ?? 'high',
+    confidence: input.confidence ?? 0.91, url: 'https://example.com/advisory',
+  }]);
 }
 
 function makePublishedIncidentsDb(count: number) {
@@ -177,17 +128,7 @@ function makePublishedIncidentsDb(count: number) {
     };
   });
 
-  return {
-    prepare(sql: string) {
-      const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
-      if (!compactSql.includes('from draft_posts d') || !compactSql.includes('join ingested_events e')) {
-        throw new Error(`Unexpected SQL: ${sql}`);
-      }
-      return {
-        all: async () => ({ results: rows }),
-      };
-    },
-  } as unknown as D1Database;
+  return seedIncidentRows(rows);
 }
 
 function makeMixedPublishedIncidentsDb() {
@@ -229,17 +170,7 @@ function makeMixedPublishedIncidentsDb() {
     },
   ];
 
-  return {
-    prepare(sql: string) {
-      const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
-      if (!compactSql.includes('from draft_posts d') || !compactSql.includes('join ingested_events e')) {
-        throw new Error(`Unexpected SQL: ${sql}`);
-      }
-      return {
-        all: async () => ({ results: rows }),
-      };
-    },
-  } as unknown as D1Database;
+  return seedIncidentRows(rows);
 }
 
 describe('waitlist endpoint', () => {

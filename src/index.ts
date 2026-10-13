@@ -1,11 +1,13 @@
 import { createApp, type EnvBindings } from './app';
 import { runIngestionPipeline } from './ingestion';
+import { sendIngestionAlerts } from './ingestion-alerts';
 
 const app = createApp();
 
 export default {
   fetch: app.fetch,
   async scheduled(_controller: ScheduledController, env: EnvBindings, ctx: ExecutionContext) {
-    ctx.waitUntil(runIngestionPipeline(env, fetch, { mode: 'cron', runId: `cron-${Date.now()}` }));
+    ctx.waitUntil(runIngestionPipeline(env, fetch, { mode: 'cron', runId: `cron-${Date.now()}` })
+      .then(() => sendIngestionAlerts(env)));
   },
 };

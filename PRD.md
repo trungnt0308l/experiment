@@ -194,7 +194,15 @@ Teams need a single low-cost service that detects relevant AI security incidents
 3. Web UI scraping is not used for production customer alerts unless explicit legal approval is documented.
 
 ### Ingestion Rules
-- Deduplicate by URL + semantic similarity.
+- Retain normalized source payloads in a durable D1 inbox before advancing paginated scan checkpoints; retries must survive source disappearance, timestamp ties, and publication failures.
+- Deduplicate by stable source identifier, canonical CVE, and exact source URL. LLM decisions are not a prerequisite for ingestion or publication; optional enrichment has its own bounded retry path.
+- Scan NVD/GHSA published-date windows initially and modification-date windows subsequently, with overlap and persistent page progress. Respect HTTP rate-limit cooldowns and per-run resource budgets.
+- Share an atomic, owned lease across scheduled and manual ingestion. Database/lease failures are fail-closed.
+- Prefer authoritative source severity/CVSS over keyword severity. Retain full classification evidence while keeping public summaries concise.
+- Show upstream advisory disclosure separately from Radar page publication; neither claims a verified exploitation date. Preserve original publication dates and operator-reviewed drafts during retries.
+- Provide authenticated source health, run history, backlog age, historical orphan visibility, and bounded recovery previews. Recovery is explicit and resumable; old orphaned records require individual review rather than blind publication.
+- Paginate public archives in D1 and query incident details by slug, without the former 200-record accessibility cutoff.
+- Enable deduplicated operational alerts only to existing configured operator Email/Telegram destinations. An independent monitor must poll the authenticated health endpoint to detect a scheduler that never fires.
 - Require minimum confidence threshold for instant alerts.
 - Low-confidence items move to digest or review queue.
 - Every remediation must carry at least one source citation.
@@ -291,3 +299,4 @@ Teams need a single low-cost service that detects relevant AI security incidents
 - [2026-02-25] reapply-homepage-friction: Removed homepage risk checkbox gate again and restored email-first waitlist flow with optional interests.
 - [2026-03-07] seo-content-enhancement-plan: Added public indexing quality gate guidance, methodology page requirement, stricter AI relevance matching, and sitemap exclusion behavior for weak AI-overlap incident pages.
 - [2026-03-07] restore-full-incident-archive: Restored all published incidents to the public archive, sitemap, and default indexation path while keeping editorial review and correction guidance.
+- [2026-10-13] ingestion-reliability: Added durable collection/retry checkpoints, paginated modification scans, owned leases, source severity/date provenance, recovery controls, health/alerts, database-backed archives, and Windows Node 24 verification. Decoupled optional enrichment from publication so provider outages cannot suppress incidents.

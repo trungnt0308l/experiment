@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { createTestDb } from './helpers/db';
 import {
   compactSummaryText,
   isEventRecent,
@@ -12,7 +13,6 @@ import {
   summarizeGitHubAdvisory,
 } from '../src/ingestion';
 
-type InMemoryState = { value: string; updated_at: string };
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -28,133 +28,7 @@ function xmlResponse(body: string, status = 200): Response {
   });
 }
 
-function createPipelineDbFixture() {
-  const state = new Map<string, InMemoryState>();
-  const events: Array<{
-    id: number;
-    source: string;
-    external_id: string;
-    title: string;
-    url: string;
-    summary: string;
-    published_at: string | null;
-    fingerprint: string;
-  }> = [];
-  const drafts = new Map<number, { id: number; event_id: number }>();
-  let nextEventId = 1;
-  let nextDraftId = 1;
-
-  const db = {
-    prepare(sql: string) {
-      const compactSql = sql.replace(/\s+/g, ' ').trim().toLowerCase();
-      return {
-        bind(...params: unknown[]) {
-          return {
-            all: async () => {
-              if (
-                compactSql.includes('from ingested_events') &&
-                compactSql.includes('order by datetime(coalesce(published_at, created_at)) desc')
-              ) {
-                return {
-                  results: [...events]
-                    .sort((a, b) => Date.parse(b.published_at ?? '') - Date.parse(a.published_at ?? ''))
-                    .slice(0, Number(params[0] ?? 120))
-                    .map((row) => ({
-                      source: row.source,
-                      external_id: row.external_id,
-                      title: row.title,
-                      url: row.url,
-                      summary: row.summary,
-                      published_at: row.published_at,
-                    })),
-                };
-              }
-              throw new Error(`Unexpected all SQL: ${sql}`);
-            },
-            first: async () => {
-              if (compactSql.startsWith('select id from ingested_events where fingerprint =')) {
-                const fingerprint = String(params[0] ?? '');
-                const row = events.find((item) => item.fingerprint === fingerprint);
-                return row ? { id: row.id } : null;
-              }
-              if (compactSql.startsWith('select key, value, updated_at from ingestion_state')) {
-                const key = String(params[0] ?? '');
-                const row = state.get(key);
-                if (!row) {
-                  return null;
-                }
-                return { key, value: row.value, updated_at: row.updated_at };
-              }
-              if (compactSql.startsWith('select id from draft_posts where event_id =')) {
-                const eventId = Number(params[0] ?? 0);
-                const row = drafts.get(eventId);
-                return row ? { id: row.id } : null;
-              }
-              throw new Error(`Unexpected first SQL: ${sql}`);
-            },
-            run: async () => {
-              if (compactSql.startsWith('insert into ingested_events')) {
-                const fingerprint = String(params[8] ?? '');
-                const existing = events.find((item) => item.fingerprint === fingerprint);
-                if (existing) {
-                  return { meta: { changes: 0 } };
-                }
-                events.push({
-                  id: nextEventId,
-                  source: String(params[0] ?? 'rss'),
-                  external_id: String(params[1] ?? ''),
-                  title: String(params[2] ?? ''),
-                  url: String(params[3] ?? ''),
-                  summary: String(params[4] ?? ''),
-                  published_at: params[5] ? String(params[5]) : null,
-                  fingerprint,
-                });
-                nextEventId += 1;
-                return { meta: { changes: 1 } };
-              }
-              if (compactSql.startsWith('insert into draft_posts')) {
-                const eventId = Number(params[0] ?? 0);
-                if (drafts.has(eventId)) {
-                  return { meta: { changes: 0 } };
-                }
-                drafts.set(eventId, { id: nextDraftId, event_id: eventId });
-                nextDraftId += 1;
-                return { meta: { changes: 1 } };
-              }
-              if (compactSql.includes('insert into ingestion_state') && compactSql.includes('where datetime(ingestion_state.updated_at) <=')) {
-                const key = String(params[0] ?? '');
-                const value = String(params[1] ?? '');
-                const nowIso = String(params[2] ?? '');
-                const expiryIso = String(params[3] ?? '');
-                const existing = state.get(key);
-                if (!existing || Date.parse(existing.updated_at) <= Date.parse(expiryIso)) {
-                  state.set(key, { value, updated_at: nowIso });
-                  return { meta: { changes: 1 } };
-                }
-                return { meta: { changes: 0 } };
-              }
-              if (compactSql.includes('insert into ingestion_state')) {
-                const key = String(params[0] ?? '');
-                const value = String(params[1] ?? '');
-                const nowIso = String(params[2] ?? '');
-                state.set(key, { value, updated_at: nowIso });
-                return { meta: { changes: 1 } };
-              }
-              if (compactSql.startsWith('delete from ingestion_state where key =')) {
-                const key = String(params[0] ?? '');
-                const removed = state.delete(key);
-                return { meta: { changes: removed ? 1 : 0 } };
-              }
-              throw new Error(`Unexpected run SQL: ${sql}`);
-            },
-          };
-        },
-      };
-    },
-  } as unknown as D1Database;
-
-  return { db, state, events };
-}
+const createPipelineDbFixture = createTestDb;
 
 function createFetchStub(input: {
   nvd?: Array<{ id: string; published: string; summary?: string }>;
@@ -430,7 +304,7 @@ describe('ingestion helpers', () => {
     await firstRun;
   });
 
-  test('stops on event budget and advances cursor through processed events only', async () => {
+  test('stops on event budget after durably staging all source records', async () => {
     const fixture = createPipelineDbFixture();
     const env = {
       DB: fixture.db,
@@ -464,7 +338,7 @@ describe('ingestion helpers', () => {
     expect(result.processed).toBe(1);
     expect(result.queuedForNextRun).toBeGreaterThan(0);
     const cursorRaw = fixture.state.get('cursor:nvd')?.value ?? '';
-    expect(cursorRaw).toContain('2026-02-10T00:00:00.000Z');
+    expect(cursorRaw).toContain('2026-02-11T00:00:00.000Z');
   });
 
   test('stops on runtime budget', async () => {
@@ -563,7 +437,8 @@ describe('ingestion helpers', () => {
     );
 
     expect(result.errors.some((item) => item.includes('NVD keyword'))).toBe(true);
-    expect(result.sourceStats.nvd.errors).toBe(4);
+    expect(result.sourceStats.nvd.errors).toBeGreaterThan(0);
+    expect(result.sourceStats.nvd.errors).toBeLessThanOrEqual(2); // Stop remaining queries once a cooldown is known.
     expect(result.sourceStats.ghsa.inserted).toBe(1);
     expect(result.draftsCreated).toBe(1);
   });
@@ -596,7 +471,7 @@ describe('ingestion helpers', () => {
         ENABLE_HN_SOURCE: 'false',
         RSS_FEEDS: 'https://example.com/feed.xml',
         AUTO_PUBLISH_TRUSTED_SOURCES: 'ghsa',
-        INGEST_CRON_MAX_RUNTIME_MS: '60',
+        INGEST_CRON_MAX_RUNTIME_MS: '1000',
         INGEST_CRON_DISABLE_LLM_DEDUPE: 'true',
       },
       slowNvdFetch,
@@ -793,7 +668,7 @@ describe('ingestion helpers', () => {
     const cron = resolveRuntimeCaps({ INGEST_CRON_DISABLE_LLM_DEDUPE: 'true' }, 'cron');
     expect(cron.maxRuntimeMs).toBe(20000);
     expect(cron.maxProcessEvents).toBe(60);
-    expect(cron.maxDbWrites).toBe(180);
+    expect(cron.maxDbWrites).toBe(600);
     expect(cron.fetchTimeoutMs).toBe(8000);
     expect(cron.llmDedupeMaxCalls).toBe(0);
 

@@ -1,5 +1,6 @@
 import type { EnvBindings } from './app';
 import type { SourceEvent } from './ingestion';
+import { sourceRequest, SourceHttpError } from './ingestion-network';
 
 export type DraftEnrichment = {
   summary: string;
@@ -111,7 +112,8 @@ async function callOpenAiJson(
   env: EnvBindings,
   fetchFn: typeof fetch,
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  timeoutMs = 10000
 ): Promise<{ json: Record<string, unknown>; model: string } | null> {
   const cfg = openAiConfig(env);
   if (!cfg) {
@@ -122,6 +124,7 @@ async function callOpenAiJson(
     cfg.model.startsWith('gpt-5') || cfg.model.startsWith('o') ? ['responses', 'chat'] : ['chat', 'responses'];
 
   let lastError = 'OpenAI request failed';
+  const deadline = Date.now() + timeoutMs;
 
   for (const endpoint of endpointOrder) {
     const payload =
@@ -144,14 +147,21 @@ async function callOpenAiJson(
             response_format: { type: 'json_object' },
           };
 
-    const response = await fetchFn(`${cfg.baseUrl}/${endpoint === 'responses' ? 'responses' : 'chat/completions'}`, {
+    let response: Response;
+    try {
+      const result = await sourceRequest(fetchFn, `${cfg.baseUrl}/${endpoint === 'responses' ? 'responses' : 'chat/completions'}`, Math.max(1, deadline - Date.now()), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${cfg.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    });
+      });
+      response = new Response(result.body, { headers: result.headers });
+    } catch (error) {
+      if (error instanceof SourceHttpError) response = new Response('Provider request rejected', { status: error.status });
+      else throw error;
+    }
 
     if (!response.ok) {
       const text = await response.text();
@@ -285,7 +295,8 @@ function normalizeRemedyList(value: unknown): string[] {
 export async function llmEnrichIncident(
   env: EnvBindings,
   event: SourceEvent & { severity?: string; confidence?: number },
-  fetchFn: typeof fetch = fetch
+  fetchFn: typeof fetch = fetch,
+  timeoutMs = 10000
 ): Promise<DraftEnrichment | null> {
   if ((env.LLM_ENRICH_ENABLED ?? 'true').toLowerCase() !== 'true') {
     return null;
@@ -314,7 +325,7 @@ export async function llmEnrichIncident(
     2
   );
 
-  const output = await callOpenAiJson(env, fetchFn, system, user);
+  const output = await callOpenAiJson(env, fetchFn, system, user, timeoutMs);
   if (!output) {
     return null;
   }

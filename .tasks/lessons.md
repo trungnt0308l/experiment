@@ -75,3 +75,21 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: I added the run-state JSON shape quickly and did not check for overlapping keys in the spread payload.
 - **Fix applied**: Removed the duplicate explicit `mode` fields and re-ran `npm run typecheck` plus the full test suite.
 - **Rule going forward**: When building typed telemetry/state payloads with object spreads, scan for overlapping keys before leaving the edit phase.
+
+## [2026-10-13] ingestion-reliability: Date parsing depended on the Windows timezone
+- **What went wrong**: The real EUVD date-format regression test differed by seven hours on this Windows machine. Initial typecheck also exposed a union-valued HTTP header object and missing explicit Node test types after toolchain updates.
+- **Root cause**: Upstream date strings omitted timezone information, so Date.parse used the host timezone; inferred optional header values and transitive ambient test types were insufficiently explicit.
+- **Fix applied**: Normalize timezone-free source dates as UTC, explicitly type HTTP headers, include Node test types, and add real SQLite regression tests. Windows CI uses Node 24.
+- **Rule going forward**: Normalize source dates with an explicit timezone before storing or comparing them, and validate tests on the actual supported OS/runtime rather than relying on implicit ambient types.
+
+## [2026-10-13] ingestion-reliability: Simulator and timing assumptions after dependency upgrades
+- **What went wrong**: The first D1 simulator test used the older constructor shape against Miniflare 5; a 60ms concurrency fixture became flaky with real SQLite persistence. An old test also expected all four requests to continue after rate limiting.
+- **Root cause**: Test assumptions depended on old tool APIs, mocked persistence speed, and the previous retry behavior.
+- **Fix applied**: Use the simulator's documented v4 configuration adapter, give concurrency verification adequate runtime headroom, and assert that a known cooldown stops remaining source calls.
+- **Rule going forward**: Read installed tool types after major upgrades; test timing invariants without razor-thin wall-clock margins, and update regression expectations only when the intended behavior changes.
+
+## [2026-10-13] ingestion-reliability: Live source contract verification catches mocked API acceptance
+- **What went wrong**: The live read-only GitHub recovery preview rejected timestamp ranges with HTTP 422, although unit fetch mocks accepted them.
+- **Root cause**: GitHub advisory date filters accept calendar-date search ranges, not these millisecond timestamp ranges; reviewed-advisory selection also needs to be explicit.
+- **Fix applied**: Use inclusive UTC YYYY-MM-DD ranges with durable ID deduplication, explicitly request reviewed advisories, add a request-contract regression, and repeat the live preview before rollout.
+- **Rule going forward**: Verify representative source URLs against live read-only APIs before deploying connector changes; mocks must assert request contracts, not only response handling.

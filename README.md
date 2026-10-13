@@ -88,7 +88,7 @@ npx wrangler secret put OPENAI_API_KEY --env production
 ```
 
 ### Phase 1 ingestion pipeline (HN + NVD + CISA KEV + EUVD + GHSA + RSS)
-Data ingestion runs on Worker cron (every 30 minutes via `wrangler.toml` triggers) and can be triggered manually.
+Data ingestion runs on Worker cron (hourly via `wrangler.toml` triggers) and can be triggered manually.
 
 Manual trigger:
 ```bash
@@ -111,7 +111,7 @@ Browser-based operation (no curl):
 5. Click **Approve** then **Publish** per draft.
 6. Published drafts automatically appear on `/incidents` and `/incidents/:slug`, sorted newest first.
 7. Use **Normalize Long Summaries** to repair oversized legacy advisory summaries.
-8. Use **Reset Ingestion DB** to clear ingested events and drafts before rerunning ingestion.
+8. Use **Check Source Health** to inspect failures, cooldowns, pending retries, and recovery progress. Resetting ingestion is destructive and is not a recovery procedure.
 
 Feed overrides:
 - Set `RSS_FEEDS` as a comma-separated list of RSS/Atom URLs in env vars.
@@ -130,13 +130,13 @@ Feed overrides:
 - Set `HN_MAX_ITEMS` (default `8`) to cap HN subrequests and avoid Worker resource-limit errors.
 - Set `ENABLE_HN_SOURCE=false` to disable HN ingestion temporarily.
 - Auto-publish rule: incidents from trusted sources in `AUTO_PUBLISH_TRUSTED_SOURCES` (default `nvd,cisa_kev,euvd,ghsa,rss,hn`) and meeting `AUTO_PUBLISH_MIN_SEVERITY` (default `high`) are published immediately.
-- GHSA ingestion now stores concise summary-first text (with optional short excerpt) and caps persisted summaries to prevent oversized markdown blobs in incident pages.
+- GHSA ingestion retains full bounded descriptions/metadata in the durable inbox, while keeping displayed summaries concise. A rejected source token falls back to public access once per run and remains visible as a warning.
 
 Behavior:
 - On each new waitlist signup (`joined` only), app sends notification attempts to Email (Resend) and Telegram.
 - If env vars are missing, the channel is skipped safely.
-- Semantic dedupe uses GPT-5 mini only for shortlist candidates (cost-capped by `LLM_DEDUPE_MAX_CALLS`).
-- Published incidents (auto-published and manually published drafts) are enriched by GPT-5 mini and stored in `draft_posts`.
+- Collection/publication dedupe uses stable source IDs, canonical CVEs, and exact URLs without an LLM dependency.
+- Published incidents receive optional bounded GPT-5 mini enrichment independently; failed provider calls leave deterministic incident content available and retry after cooldown.
 
 ### Post-deploy checks
 1. Open `https://aisecurityradar.com`.
@@ -150,6 +150,8 @@ Behavior:
 - `migrations/0003_ingestion_pipeline.sql`
 - `migrations/0004_draft_publish_workflow.sql`
 - `migrations/0005_llm_enrichment.sql`
+- `migrations/0006_ingestion_runtime_state.sql`
+- `migrations/0007_ingestion_reliability.sql`
 
 Use `wrangler d1 migrations apply` via npm scripts for ordered execution and tracking.
 
@@ -163,3 +165,27 @@ Use `wrangler d1 migrations apply` via npm scripts for ordered execution and tra
 - URL query token auth is disabled for admin endpoints; bearer token only.
 - Admin and waitlist API responses send `Cache-Control: no-store`.
 - Basic per-IP throttling is enabled on `/api/waitlist` to reduce abuse.
+
+## Reliability, recovery, and Windows verification
+
+Use Windows Node 24 LTS. PowerShell commands:
+
+```powershell
+npm.cmd ci
+npm.cmd run typecheck
+npm.cmd run lint
+npm.cmd run test:coverage
+npm.cmd run build
+```
+
+Tests use a fixed calendar with advancing elapsed time, real SQLite migrations, and Cloudflare D1 integration. CI runs the same checks on `windows-latest`. Miniflare is pinned to the beta used by Wrangler 4.150 because the default older release has known vulnerable transitive dependencies; changing the simulator requires its matching API/configuration adapter.
+
+Ingestion keeps durable per-source/query page positions and a normalized inbox in D1. Pending writes and draft publication retry independently, and all triggers share a 120-second owned lease (longer than the maximum 55-second run). NVD uses a persistent 30-second request quota and keyword rotation; sources honor HTTP cooldowns. Completed normal scans switch to modified-date windows with a two-day overlap. Snapshot sources (RSS, KEV, EUVD latest) cannot guarantee historical completeness; recovery targets NVD and GHSA.
+
+`GET /api/admin/ingestion/health` requires the admin bearer token. It reports source failures, cooldowns, heartbeat freshness, oldest pending work, retry counts, historical high-severity orphans, and 20 recent runs. Run history is retained for 90 days. `INGESTION_ALERTS_ENABLED=true` enables deduplicated alerts using existing operator notification credentials, never the subscriber list. Configure an independent authenticated monitor for missed cron heartbeats: a stopped scheduler cannot send its own alert.
+
+Stop future historical scans with authenticated `POST /api/admin/ingestion/backfill/stop`; an in-flight page may finish. A different active recovery range cannot be silently replaced. Public sitemap output uses a 45,000-incident protocol budget; add a sitemap index before reaching that scale (archive/detail access itself has no such cutoff).
+
+For the May-onward gap, open `/admin/ops`, check health, expand **Recover historical advisories**, and preview the May 1 range before starting. The preview samples the first page of each source query, not a full missing-record count. Execution retains all matching pages and resumes over subsequent hourly runs. Only records meeting the existing trusted-source, severity, and confidence policy auto-publish. Other records remain reviewable. Existing drafts/pages and their publication timestamps are preserved. Cancel or adjust an active recovery only after inspecting its progress.
+
+Production rollout: record the current Worker version and D1 Time Travel bookmark; apply migration 0007 before deploying the reviewed code. Verify health, normal ingestion, old detail URLs, and source cooldowns before recovery. The additive migration permits rollback to the previous Worker while keeping the inbox/recovery history. Do not roll back or clear the production database to reverse a code deployment. See `.tasks/ingestion-reliability.md` for actual rollout results.
