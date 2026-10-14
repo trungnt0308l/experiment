@@ -1,6 +1,7 @@
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 export class SourceHttpError extends Error {
+  public warnings: string[] = [];
   constructor(public status: number, public retryAfterMs: number, message: string) {
     super(message);
   }

@@ -293,6 +293,7 @@ Teams need a single low-cost service that detects relevant AI security incidents
 6. Published incident pages remain in the public archive once released; quality issues are handled through updates and corrections rather than selective deindexing.
 
 ## Changelog
+- [2026-10-14] ingestion-followup: Oversized metadata is marked and bounded, with oversized core content quarantined for review so later pages remain collectable. GHSA respects the configured shared per-run cap with resumable partial pages. Source HTTP failures retain checkpoints and use exponential cooldowns; alerts suppress recurring problems independently for six hours while new failures alert immediately. Public audit checks pace NVD and fail when evidence is incomplete.
 - [2026-02-14] Initial PRD created for implementation kickoff with phased goals, verification steps, and exit criteria.
 - [2026-02-14] Added implementation default: GPT-5 mini optional layer for semantic dedupe and published-incident enrichment, with budget caps and fallback to deterministic pipeline when LLM is unavailable.
 - [2026-02-25] ghsa-advisory-parsing-normalization-hotfix: Added summary normalization safeguards (source ingestion + render caps), GHSA summary-first parsing, and admin long-summary cleanup endpoint for legacy incident content.

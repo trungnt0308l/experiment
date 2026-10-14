@@ -1,10 +1,10 @@
 import type { EnvBindings } from './app';
-import { parseRssOrAtom, type SourceEvent } from './ingestion';
+import { parseRssOrAtom, resolveRuntimeCaps, type SourceEvent } from './ingestion';
 import { isoDate, jsonArray, jsonObject, scoreSeverity, SourceHttpError, sourceRequest } from './ingestion-network';
 
 export const SOURCES: SourceEvent['source'][] = ['nvd', 'cisa_kev', 'euvd', 'ghsa', 'rss', 'hn'];
 export const NVD_QUERIES = ['artificial intelligence', 'llm', 'prompt injection', 'machine learning'];
-export type ScanPosition = { start: string; end: string; offset: number; next?: string; complete?: boolean; dateField?: 'published' | 'updated' };
+export type ScanPosition = { start: string; end: string; offset: number; itemOffset?: number; next?: string; complete?: boolean; dateField?: 'published' | 'updated' };
 export type SourcePage = { events: SourceEvent[]; next?: string; offset?: number; warnings: string[] };
 type Context = { env: EnvBindings; fetchFn: typeof fetch; timeout: number; position: ScanPosition; query: string };
 
@@ -81,7 +81,7 @@ function ghsaEvent(value: unknown): SourceEvent {
 
 async function ghsaPage(ctx: Context): Promise<SourcePage> {
   const url = new URL(ctx.position.next ?? 'https://api.github.com/advisories');
-  if (!ctx.position.next) url.search = new URLSearchParams({ type: 'reviewed', is_withdrawn: 'false', per_page: '100', sort: ctx.position.dateField === 'updated' ? 'updated' : 'published', direction: 'asc',
+  if (!ctx.position.next) url.search = new URLSearchParams({ type: 'reviewed', is_withdrawn: 'false', per_page: String(Math.min(100, resolveRuntimeCaps(ctx.env, 'manual').ghsaMaxItemsPerRun)), sort: ctx.position.dateField === 'updated' ? 'updated' : 'published', direction: 'asc',
     [ctx.position.dateField === 'updated' ? 'modified' : 'published']: `${ctx.position.start.slice(0, 10)}..${ctx.position.end.slice(0, 10)}` }).toString();
   const headers: Record<string, string> = { Accept: 'application/vnd.github+json', 'User-Agent': 'ai-security-radar' };
   if (ctx.env.GITHUB_API_TOKEN) headers.Authorization = `Bearer ${ctx.env.GITHUB_API_TOKEN}`;
@@ -93,7 +93,11 @@ async function ghsaPage(ctx: Context): Promise<SourcePage> {
     delete headers.Authorization;
     ctx.env.GITHUB_API_TOKEN = undefined; // This run's copied bindings use public access for subsequent pages.
     warnings.push('GitHub token rejected (401); using public advisory access. Rotate the source token.');
-    response = await sourceRequest(ctx.fetchFn, url.toString(), ctx.timeout, { headers });
+    try { response = await sourceRequest(ctx.fetchFn, url.toString(), ctx.timeout, { headers }); }
+    catch (fallbackError) {
+      if (fallbackError instanceof SourceHttpError) fallbackError.warnings.push(...warnings);
+      throw fallbackError;
+    }
   }
   return { events: jsonArray(JSON.parse(response.body)).map(ghsaEvent), next: nextLink(response.headers.get('link')), warnings };
 }

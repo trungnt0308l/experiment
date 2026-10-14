@@ -99,3 +99,21 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: Two consumers advanced the same four-query rotation, producing a two-step cycle instead of fair independent progression.
 - **Fix applied**: Keep job-specific historical rotation independent of normal scans; a four-run regression proves every historical keyword receives a request under a one-request remainder.
 - **Rule going forward**: Separate fairness cursors across competing workloads and test constrained-budget progress across multiple runs, not just a single successful scan.
+
+## [2026-10-14] ingestion-followup: Review exposed source record and budget gaps
+- **What went wrong**: PR review found a stable oversized advisory could block its page, the GHSA cap was not consumed, and the diagnostic audit launched unpaced public NVD requests.
+- **Root cause**: Storage validation failed at page scope; the runtime replaced connectors without carrying every resolved cap forward; the audit eagerly created fetch promises.
+- **Fix applied**: Bound metadata and quarantine oversized core content, retain original change hashes, enforce a shared GHSA cap with partial-page checkpoints, and queue/pause/retry audit requests with a failing exit status on incomplete evidence.
+- **Rule going forward**: Test poison records followed by valid pages; trace every advertised cap to runtime consumption; diagnostic scripts must follow the same source limits and fail clearly when evidence is incomplete.
+
+## [2026-10-14] ingestion-followup: Parameterized fixture widened tuple values
+- **What went wrong**: The new cap boundary test passed at runtime but typecheck inferred each array element as string | number, conflicting with the string environment binding.
+- **Root cause**: A mixed-type parameter table lacked tuple inference.
+- **Fix applied**: Use a const assertion on the parameter table and repeat typecheck and lint.
+- **Rule going forward**: Preserve tuple types for mixed-type parameter tables; runtime test success does not replace strict typechecking.
+
+## [2026-10-14] ingestion-followup: JavaScript tests lacked shared lint globals
+- **What went wrong**: ESLint rejected Response in the new JavaScript audit tests although the runtime tests passed.
+- **Root cause**: The existing test lint configuration applied runtime globals only to TypeScript files.
+- **Fix applied**: Extend the test glob to cover JavaScript tests using the same runtime globals.
+- **Rule going forward**: When adding a test file type, include it in the repository lint configuration and check it before handoff.

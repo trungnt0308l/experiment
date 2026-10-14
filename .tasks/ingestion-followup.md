@@ -1,0 +1,36 @@
+# Task: ingestion-followup
+
+## Meta
+- **Status**: REVIEW
+- **Branch**: fix/ingestion-followup
+- **PR**: (pending)
+- **Created**: 2026-10-14
+- **Last Updated**: 2026-10-14
+
+## Objective
+Investigate recurring ingestion alerts and validate/fix the P1 and two P2 findings on PRs #2 and #3.
+
+## Plan
+- [x] Inspect upstream errors, retry/cooldown/alert behavior, and review findings
+- [x] Fix confirmed defects and document operational follow-up
+- [x] Write regression tests for confirmed behavior and edge cases
+- [x] Verification: full tests with coverage, typecheck, lint/build where available, manual checks
+- [ ] PR self-review, commit, push, create PR
+
+## Progress Log
+- [2026-10-14] Started task; read lessons and PRD, located experiment repository, retrieved both PR discussions. Existing branch is fix/ingestion-reliability; tracked node_modules have pre-existing local changes. Preparing dedicated branch without discarding user changes.
+- [2026-10-14] Verified all three review findings. GitHub confirms both PRs are open and main remains cb7b707. Synced remote using OpenSSL (Windows Schannel failed). Main is already an ancestor of deployed PR #3; rebase was unnecessary and rejected due to the pre-existing tracked dependency changes.
+- [2026-10-14] Created a dedicated working tree at D:/Working/cursor/experiment-ingestion-followup on fix/ingestion-followup, based on deployed PR #3. This permits writes without changing existing file ACLs or user changes. Implemented bounded oversized-record retention/quarantine, GHSA cap with partial-page checkpoints, 5xx cooldown/backoff, preservation of token warnings on failed fallback, and per-issue alert suppression.
+- [2026-10-14] Restored the public audit script from PR #2 and added a shared NVD request queue, optional API key, bounded retries, and nonzero exit on incomplete evidence. Thirteen new regression tests pass. Updated README, PRD changelog, and the mistake ledger for the confirmed review findings. Initial typecheck passes.
+- [2026-10-14] Full suite with coverage passed: 112 tests, 81.16% overall line coverage, storage/network/alerts 100%, runtime 98.05%. Worker dry-run build succeeded. Strict typecheck found a widened parameter-table tuple in a new test; corrected it and recorded the lesson. Redirecting Wrangler logs to workspace storage for a clean repeated build.
+- [2026-10-14] Final typecheck, lint (including new JavaScript tests), syntax and whitespace checks, and workspace-logged Worker dry-run build passed. The paced live read-only audit completed: all eight NVD checks, public GHSA, EUVD, public archive, and official KEV GitHub mirror returned 200. CISA website feed returned 403 from this host; the audit correctly exited 1 and explicitly marked incomplete evidence. These host checks do not prove current Worker source health; saved Cloudflare OAuth returns 401.
+
+## Verification Checklist
+- [x] Confirmed review defects fixed with regressions; operational token rotation remains an owner follow-up
+- [x] Tests pass: 112 with coverage, including SQLite and Cloudflare D1 integrations
+- [x] No lint/type errors; Worker dry-run build and both audit syntax checks pass
+- [x] Manual verification documented and executed: paced read-only upstream audit, preserving a failing result for CISA's 403
+- [x] PRD and README updated for bounded retention, cap checkpoints, backoff, alert suppression, and audit behavior
+
+## Issues / Blockers
+- Production D1 read-only health lookup returned HTTP 401 with the saved Cloudflare OAuth session. A production deployment requires a renewed session. Source GITHUB_API_TOKEN remains invalid and requires replacement by the owner.
