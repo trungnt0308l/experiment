@@ -99,3 +99,39 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: Two consumers advanced the same four-query rotation, producing a two-step cycle instead of fair independent progression.
 - **Fix applied**: Keep job-specific historical rotation independent of normal scans; a four-run regression proves every historical keyword receives a request under a one-request remainder.
 - **Rule going forward**: Separate fairness cursors across competing workloads and test constrained-budget progress across multiple runs, not just a single successful scan.
+
+## [2026-10-14] ingestion-followup: Review exposed source record and budget gaps
+- **What went wrong**: PR review found a stable oversized advisory could block its page, the GHSA cap was not consumed, and the diagnostic audit launched unpaced public NVD requests.
+- **Root cause**: Storage validation failed at page scope; the runtime replaced connectors without carrying every resolved cap forward; the audit eagerly created fetch promises.
+- **Fix applied**: Bound metadata and quarantine oversized core content, retain original change hashes, enforce a shared GHSA cap with partial-page checkpoints, and queue/pause/retry audit requests with a failing exit status on incomplete evidence.
+- **Rule going forward**: Test poison records followed by valid pages; trace every advertised cap to runtime consumption; diagnostic scripts must follow the same source limits and fail clearly when evidence is incomplete.
+
+## [2026-10-14] ingestion-followup: Parameterized fixture widened tuple values
+- **What went wrong**: The new cap boundary test passed at runtime but typecheck inferred each array element as string | number, conflicting with the string environment binding.
+- **Root cause**: A mixed-type parameter table lacked tuple inference.
+- **Fix applied**: Use a const assertion on the parameter table and repeat typecheck and lint.
+- **Rule going forward**: Preserve tuple types for mixed-type parameter tables; runtime test success does not replace strict typechecking.
+
+## [2026-10-14] ingestion-followup: JavaScript tests lacked shared lint globals
+- **What went wrong**: ESLint rejected Response in the new JavaScript audit tests although the runtime tests passed.
+- **Root cause**: The existing test lint configuration applied runtime globals only to TypeScript files.
+- **Fix applied**: Extend the test glob to cover JavaScript tests using the same runtime globals.
+- **Rule going forward**: When adding a test file type, include it in the repository lint configuration and check it before handoff.
+
+## [2026-10-14] ingestion-followup: Recreated fixtures changed disclosure timestamps
+- **What went wrong**: Windows CI caught the metadata hash regression comparing retained payloads with publication timestamps two milliseconds apart, although the local run happened within one clock tick.
+- **Root cause**: The advancing-calendar fixture factory was invoked twice when the test intended to vary metadata alone.
+- **Fix applied**: Reuse one source event and vary only its metadata; repeat full local verification and Windows CI.
+- **Rule going forward**: When proving one field changes, create the baseline fixture once and keep all other fields identical; never rely on multiple clock reads having the same timestamp.
+
+## [2026-10-14] ingestion-followup: Raw OAuth requests bypassed automatic token refresh
+- **What went wrong**: A saved access token returned 401 and was initially treated as needing a new Cloudflare login.
+- **Root cause**: The raw API operator script did not use the valid refresh token through Wrangler's OAuth lifecycle.
+- **Fix applied**: Copy the ignored profile to writable workspace storage, run Wrangler whoami to refresh automatically, and verify production D1 reads and Worker version access.
+- **Rule going forward**: Check authenticated access through the provider's CLI before declaring an expired access token to be an access blocker.
+
+## [2026-10-14] ingestion-followup: Expected quota pauses amplified outage backoff
+- **What went wrong**: The P1 on PR #4 correctly found that my exponential backoff counted locally generated NVD quota errors as upstream outages. A deterministic ten-hour reproduction collected zero pages in three scheduled runs.
+- **Root cause**: Local quota enforcement reused SourceHttpError(429); the prior fairness test deleted quota/health state, so it could not detect accumulated cooldowns across runs.
+- **Fix applied**: Add a distinct typed budget pause, keep pauses within a run, classify them as warnings, preserve rolling quotas/checkpoints, and recover legacy quota-only cooldowns. Add repeated hourly/rolling-window/recovery tests without deleting state, plus real 429/503 and mixed-history checks. Source success requires an actual successful response; GHSA token warnings survive budget-limited fallback.
+- **Rule going forward**: Never encode an intentional local scheduling limit as an upstream HTTP failure. Test repeated runs with persisted state intact and verify genuine upstream failures still back off and alert before committing.

@@ -293,6 +293,7 @@ Teams need a single low-cost service that detects relevant AI security incidents
 6. Published incident pages remain in the public archive once released; quality issues are handled through updates and corrections rather than selective deindexing.
 
 ## Changelog
+- [2026-10-14] ingestion-followup: Oversized metadata is marked and bounded, with oversized core content quarantined for review so later pages remain collectable. GHSA respects the configured shared per-run cap with resumable partial pages. Source HTTP failures retain checkpoints and use exponential cooldowns; alerts suppress recurring problems independently for six hours while new failures alert immediately. Public audit checks pace NVD and fail when evidence is incomplete.
 - [2026-02-14] Initial PRD created for implementation kickoff with phased goals, verification steps, and exit criteria.
 - [2026-02-14] Added implementation default: GPT-5 mini optional layer for semantic dedupe and published-incident enrichment, with budget caps and fallback to deterministic pipeline when LLM is unavailable.
 - [2026-02-25] ghsa-advisory-parsing-normalization-hotfix: Added summary normalization safeguards (source ingestion + render caps), GHSA summary-first parsing, and admin long-summary cleanup endpoint for legacy incident content.
@@ -300,3 +301,4 @@ Teams need a single low-cost service that detects relevant AI security incidents
 - [2026-03-07] seo-content-enhancement-plan: Added public indexing quality gate guidance, methodology page requirement, stricter AI relevance matching, and sitemap exclusion behavior for weak AI-overlap incident pages.
 - [2026-03-07] restore-full-incident-archive: Restored all published incidents to the public archive, sitemap, and default indexation path while keeping editorial review and correction guidance.
 - [2026-10-13] ingestion-reliability: Added durable collection/retry checkpoints, paginated modification scans, owned leases, source severity/date provenance, recovery controls, health/alerts, database-backed archives, and Windows Node 24 verification. Decoupled optional enrichment from publication so provider outages cannot suppress incidents.
+- [2026-10-14] ingestion-followup: Distinguish local collection-budget pauses from upstream failures. Local quotas retain checkpoint progress and warnings without increasing failure streaks or persisting outage cooldowns; recover legacy quota-only cooldowns automatically. Record source success only on successful source responses.
