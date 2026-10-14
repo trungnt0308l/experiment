@@ -129,3 +129,9 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: The raw API operator script did not use the valid refresh token through Wrangler's OAuth lifecycle.
 - **Fix applied**: Copy the ignored profile to writable workspace storage, run Wrangler whoami to refresh automatically, and verify production D1 reads and Worker version access.
 - **Rule going forward**: Check authenticated access through the provider's CLI before declaring an expired access token to be an access blocker.
+
+## [2026-10-14] ingestion-followup: Expected quota pauses amplified outage backoff
+- **What went wrong**: The P1 on PR #4 correctly found that my exponential backoff counted locally generated NVD quota errors as upstream outages. A deterministic ten-hour reproduction collected zero pages in three scheduled runs.
+- **Root cause**: Local quota enforcement reused SourceHttpError(429); the prior fairness test deleted quota/health state, so it could not detect accumulated cooldowns across runs.
+- **Fix applied**: Add a distinct typed budget pause, keep pauses within a run, classify them as warnings, preserve rolling quotas/checkpoints, and recover legacy quota-only cooldowns. Add repeated hourly/rolling-window/recovery tests without deleting state, plus real 429/503 and mixed-history checks. Source success requires an actual successful response; GHSA token warnings survive budget-limited fallback.
+- **Rule going forward**: Never encode an intentional local scheduling limit as an upstream HTTP failure. Test repeated runs with persisted state intact and verify genuine upstream failures still back off and alert before committing.

@@ -1,6 +1,6 @@
 import type { EnvBindings } from './app';
 import { parseRssOrAtom, resolveRuntimeCaps, type SourceEvent } from './ingestion';
-import { isoDate, jsonArray, jsonObject, scoreSeverity, SourceHttpError, sourceRequest } from './ingestion-network';
+import { isoDate, jsonArray, jsonObject, scoreSeverity, SourceBudgetError, SourceHttpError, sourceRequest } from './ingestion-network';
 
 export const SOURCES: SourceEvent['source'][] = ['nvd', 'cisa_kev', 'euvd', 'ghsa', 'rss', 'hn'];
 export const NVD_QUERIES = ['artificial intelligence', 'llm', 'prompt injection', 'machine learning'];
@@ -95,7 +95,7 @@ async function ghsaPage(ctx: Context): Promise<SourcePage> {
     warnings.push('GitHub token rejected (401); using public advisory access. Rotate the source token.');
     try { response = await sourceRequest(ctx.fetchFn, url.toString(), ctx.timeout, { headers }); }
     catch (fallbackError) {
-      if (fallbackError instanceof SourceHttpError) fallbackError.warnings.push(...warnings);
+      if (fallbackError instanceof SourceHttpError || fallbackError instanceof SourceBudgetError) fallbackError.warnings.push(...warnings);
       throw fallbackError;
     }
   }

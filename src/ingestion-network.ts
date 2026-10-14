@@ -1,4 +1,15 @@
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+export const NVD_QUOTA_MESSAGE = 'NVD local request quota reached; scan resumes next run';
+export const SOURCE_BUDGET_MESSAGE = 'Source request budget exhausted';
+
+export class SourceBudgetError extends Error {
+  public warnings: string[] = [];
+  constructor(public scope: 'nvd' | 'all', message: string) { super(message); }
+}
+
+export function isSourceBudgetMessage(message: string): boolean {
+  return message.endsWith(NVD_QUOTA_MESSAGE) || message.endsWith(SOURCE_BUDGET_MESSAGE);
+}
 
 export class SourceHttpError extends Error {
   public warnings: string[] = [];

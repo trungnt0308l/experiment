@@ -1,7 +1,7 @@
 import type { EnvBindings } from './app';
 import { ingestionHealth } from './ingestion-runtime';
 import { readState, writeState } from './ingestion-storage';
-import { sourceRequest } from './ingestion-network';
+import { isSourceBudgetMessage, sourceRequest } from './ingestion-network';
 import { sha256Hex } from './ingestion';
 
 const ALERT_INTERVAL_MS = 6 * 3600000;
@@ -22,7 +22,7 @@ function dueIssues(previous: AlertState | null, identities: string[], fingerprin
 export async function sendIngestionAlerts(env: EnvBindings, fetchFn: typeof fetch = fetch): Promise<void> {
   if (env.INGESTION_ALERTS_ENABLED !== 'true' || !env.DB) return;
   const health = await ingestionHealth(env);
-  const issues = health.errors.filter((error) => !/local request quota reached|Source request budget exhausted|cooling down until/.test(error));
+  const issues = health.errors.filter((error) => !isSourceBudgetMessage(error) && !/cooling down until/.test(error));
   if (!issues.length) return;
   const text = ['AI Security Radar: ingestion needs attention', ...issues,
     `Pending records: ${health.backlog}`, 'Review source status at https://aisecurityradar.com/admin/ops'].join('\n').slice(0, 3500);

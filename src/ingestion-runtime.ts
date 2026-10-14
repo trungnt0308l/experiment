@@ -3,14 +3,15 @@ import { buildDraftPost, isEventRecent, isLikelyAiSecurityIncident, resolveRunti
   storeDraft, storeEvent, toStoredEvent, type IngestionRunOptions, type IngestionRunResult, type SourceEvent } from './ingestion';
 import { fetchSourcePage, sourceQueries, SOURCES, type ScanPosition } from './ingestion-sources';
 import { acquireLease, finishItem, pendingCount, pendingItems, readState, releaseLease, retryItem, stageEvent, writeState, type InboxItem } from './ingestion-storage';
-import { SourceHttpError } from './ingestion-network';
+import { isSourceBudgetMessage, NVD_QUOTA_MESSAGE, SOURCE_BUDGET_MESSAGE, SourceBudgetError, SourceHttpError } from './ingestion-network';
 import { enrichPendingDrafts } from './ingestion-enrichment';
 
 type Backfill = NonNullable<IngestionRunOptions['backfill']>;
 type SourceHealth = { status: string; lastAttemptAt: string; lastSuccessAt?: string; errors: string[];
   warnings: string[]; cooldownUntil?: string; failureStreak?: number; incomplete: boolean };
 type Run = { env: EnvBindings & { DB: D1Database }; fetchFn: typeof fetch; options: IngestionRunOptions;
-  result: IngestionRunResult; deadline: number; writes: number; requests: number; startedAt: string; processing?: Promise<void> };
+  result: IngestionRunResult; deadline: number; writes: number; requests: number; startedAt: string; processing?: Promise<void>;
+  pauses: Map<SourceEvent['source'], string>; successfulSources: Set<SourceEvent['source']> };
 const WINDOW_MS = 120 * 86400000;
 const OVERLAP_MS = 2 * 86400000;
 
@@ -60,6 +61,12 @@ async function savePage(run: Run, source: SourceEvent['source'], events: SourceE
   return true;
 }
 
+function collectionPaused(run: Run, source: SourceEvent['source'], health: SourceHealth): boolean {
+  const pause = run.pauses.get(source);
+  if (pause && !health.warnings.includes(pause)) health.warnings.push(pause);
+  return Boolean(pause);
+}
+
 async function scanQuery(run: Run, source: SourceEvent['source'], query: string, health: SourceHealth): Promise<boolean> {
   const prefix = run.options.backfill ? `backfill:${run.options.backfill.from}:${run.options.backfill.to}` : 'scan';
   const key = `${prefix}:${source}:${query}`;
@@ -68,11 +75,13 @@ async function scanQuery(run: Run, source: SourceEvent['source'], query: string,
   const caps = resolveRuntimeCaps(run.env, run.result.mode);
   const pages = run.result.mode === 'cron' ? 2 : 5;
   for (let pageIndex = 0; pageIndex < pages && Date.now() < run.deadline; pageIndex += 1) {
-    if (health.cooldownUntil) return true;
+    if (health.cooldownUntil || collectionPaused(run, source, health)) return true;
     const remaining = caps.ghsaMaxItemsPerRun - run.result.sourceStats.ghsa.fetched;
     if (source === 'ghsa' && remaining <= 0) return true;
     const page = await fetchSourcePage(source, { env: run.env, fetchFn: run.fetchFn, query, position,
       timeout: Math.max(1, Math.min(caps.fetchTimeoutMs, run.deadline - Date.now())) });
+    run.successfulSources.add(source);
+    health.lastSuccessAt = new Date().toISOString();
     run.result.warnings.push(...page.warnings);
     health.warnings.push(...page.warnings);
     const events = source === 'ghsa' ? page.events.slice(position.itemOffset ?? 0) : page.events;
@@ -94,9 +103,17 @@ function recordSourceFailure(run: Run, source: SourceEvent['source'], query: str
   health.incomplete = true;
   const label = source === 'nvd' ? `NVD keyword "${query}"` : source;
   const message = `${label}: ${error instanceof Error ? error.message : 'source failed'}`;
+  if (error instanceof SourceHttpError || error instanceof SourceBudgetError) {
+    health.warnings.push(...error.warnings); run.result.warnings.push(...error.warnings);
+  }
+  if (error instanceof SourceBudgetError) {
+    run.result.warnings.push(message);
+    for (const paused of error.scope === 'all' ? SOURCES : ['nvd'] as const) run.pauses.set(paused, error.message);
+    collectionPaused(run, source, health);
+    return;
+  }
   health.errors.push(message); run.result.errors.push(message); run.result.sourceStats[source].errors += 1;
   if (!(error instanceof SourceHttpError)) return;
-  health.warnings.push(...error.warnings); run.result.warnings.push(...error.warnings);
   if (error.status !== 429 && error.status !== 403 && error.status < 500) return;
   if (!health.cooldownUntil) health.failureStreak = (health.failureStreak ?? 0) + 1;
   const backoff = Math.min(6 * 3600000, 300000 * 2 ** Math.min((health.failureStreak ?? 1) - 1, 7));
@@ -104,14 +121,28 @@ function recordSourceFailure(run: Run, source: SourceEvent['source'], query: str
   health.cooldownUntil = new Date(Math.max(Date.parse(health.cooldownUntil ?? '') || 0, until)).toISOString();
 }
 
+async function saveSourceHealth(run: Run, source: SourceEvent['source'], health: SourceHealth): Promise<void> {
+  health.status = health.errors.length || health.warnings.length ? 'degraded' : 'healthy';
+  if (!health.errors.length && run.successfulSources.has(source)) health.failureStreak = 0;
+  await writeState(run.env.DB, `health:${source}`, health);
+}
+
 async function scanSource(run: Run, source: SourceEvent['source']): Promise<void> {
   const old = await readState<SourceHealth>(run.env.DB, `health:${source}`);
+  if (old?.errors.length && old.errors.every(isSourceBudgetMessage)) {
+    old.cooldownUntil = undefined; old.failureStreak = 0;
+  }
   if (old?.cooldownUntil && Date.parse(old.cooldownUntil) > Date.now()) {
     run.result.warnings.push(`${source}: cooling down until ${old.cooldownUntil}`);
     return;
   }
   const health: SourceHealth = { status: 'healthy', lastAttemptAt: run.startedAt,
     lastSuccessAt: old?.lastSuccessAt, errors: [], warnings: [], incomplete: false, failureStreak: old?.failureStreak ?? 0 };
+  if (collectionPaused(run, source, health)) {
+    health.incomplete = true;
+    await saveSourceHealth(run, source, health);
+    return;
+  }
   const queries = [...sourceQueries(source, run.env)];
   if (source === 'nvd') {
     const turnKey = run.options.backfill ? `backfill:turn:nvd:${run.options.backfill.from}:${run.options.backfill.to}` : 'scan:turn:nvd';
@@ -121,14 +152,12 @@ async function scanSource(run: Run, source: SourceEvent['source']): Promise<void
   }
   const worker = async () => { while (queries.length) {
     const query = queries.shift()!;
-    if (health.cooldownUntil) { health.incomplete = true; break; }
+    if (health.cooldownUntil || collectionPaused(run, source, health)) { health.incomplete = true; break; }
     try { health.incomplete = (await scanQuery(run, source, query, health)) || health.incomplete; }
     catch (error) { recordSourceFailure(run, source, query, health, error); }
   } };
   await Promise.all(Array.from({ length: source === 'nvd' ? 2 : 1 }, () => worker()));
-  health.status = health.errors.length || health.warnings.length ? 'degraded' : 'healthy';
-  if (!health.errors.length) { health.lastSuccessAt = new Date().toISOString(); health.failureStreak = 0; }
-  await writeState(run.env.DB, `health:${source}`, health);
+  await saveSourceHealth(run, source, health);
 }
 
 async function processItem(run: Run, item: InboxItem): Promise<void> {
@@ -229,10 +258,10 @@ async function executeRun(run: Run): Promise<void> {
 async function budgetedFetch(run: Run, fetchFn: typeof fetch): Promise<typeof fetch> {
   const nvdRequests = (await readState<number[]>(run.env.DB, 'quota:nvd') ?? []).filter((time) => time > Date.now() - 30000);
   return async (input, init) => {
-    if (++run.requests > (run.result.mode === 'cron' ? 20 : 40)) throw new Error('Source request budget exhausted');
+    if (++run.requests > (run.result.mode === 'cron' ? 20 : 40)) throw new SourceBudgetError('all', SOURCE_BUDGET_MESSAGE);
     if (String(input).startsWith('https://services.nvd.nist.gov/')) {
       while (nvdRequests.length && nvdRequests[0] <= Date.now() - 30000) nvdRequests.shift();
-      if (nvdRequests.length >= (run.env.NVD_API_KEY ? 50 : 5)) throw new SourceHttpError(429, 60000, 'NVD local request quota reached; scan resumes next run');
+      if (nvdRequests.length >= (run.env.NVD_API_KEY ? 50 : 5)) throw new SourceBudgetError('nvd', NVD_QUOTA_MESSAGE);
       nvdRequests.push(Date.now());
       await writeState(run.env.DB, 'quota:nvd', nvdRequests);
     }
@@ -248,7 +277,8 @@ export async function runDurableIngestion(env: EnvBindings, fetchFn: typeof fetc
   const startedAt = new Date().toISOString();
   const caps = resolveRuntimeCaps(env, result.mode);
   const run: Run = { env: { ...env, DB: env.DB }, fetchFn, options, result,
-    deadline: Date.now() + caps.maxRuntimeMs, writes: 0, requests: 0, startedAt };
+    deadline: Date.now() + caps.maxRuntimeMs, writes: 0, requests: 0, startedAt,
+    pauses: new Map(), successfulSources: new Set() };
   let acquired = false;
   try {
     acquired = await acquireLease(env.DB, runId, startedAt);
