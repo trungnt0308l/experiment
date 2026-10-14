@@ -56,9 +56,10 @@ test('quarantines oversized UTF-8 content and resumes it when corrected upstream
 
 test('detects upstream changes even when discarded oversized metadata differs', async () => {
   const fixture = createTestDb();
-  await stageEvent(fixture.db, { ...event('large'), metadata: { references: 'a'.repeat(70000) } }, false);
+  const original = event('large');
+  await stageEvent(fixture.db, { ...original, metadata: { references: 'a'.repeat(70000) } }, false);
   const before = fixture.sqlite.prepare('SELECT payload_hash,payload_json FROM ingestion_items').get()!;
-  await stageEvent(fixture.db, { ...event('large'), metadata: { references: 'b'.repeat(70000) } }, false);
+  await stageEvent(fixture.db, { ...original, metadata: { references: 'b'.repeat(70000) } }, false);
   const after = fixture.sqlite.prepare('SELECT payload_hash,payload_json FROM ingestion_items').get()!;
   expect(before.payload_json).toBe(after.payload_json);
   expect(before.payload_hash).not.toBe(after.payload_hash);

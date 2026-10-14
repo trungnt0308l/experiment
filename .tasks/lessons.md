@@ -117,3 +117,15 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: The existing test lint configuration applied runtime globals only to TypeScript files.
 - **Fix applied**: Extend the test glob to cover JavaScript tests using the same runtime globals.
 - **Rule going forward**: When adding a test file type, include it in the repository lint configuration and check it before handoff.
+
+## [2026-10-14] ingestion-followup: Recreated fixtures changed disclosure timestamps
+- **What went wrong**: Windows CI caught the metadata hash regression comparing retained payloads with publication timestamps two milliseconds apart, although the local run happened within one clock tick.
+- **Root cause**: The advancing-calendar fixture factory was invoked twice when the test intended to vary metadata alone.
+- **Fix applied**: Reuse one source event and vary only its metadata; repeat full local verification and Windows CI.
+- **Rule going forward**: When proving one field changes, create the baseline fixture once and keep all other fields identical; never rely on multiple clock reads having the same timestamp.
+
+## [2026-10-14] ingestion-followup: Raw OAuth requests bypassed automatic token refresh
+- **What went wrong**: A saved access token returned 401 and was initially treated as needing a new Cloudflare login.
+- **Root cause**: The raw API operator script did not use the valid refresh token through Wrangler's OAuth lifecycle.
+- **Fix applied**: Copy the ignored profile to writable workspace storage, run Wrangler whoami to refresh automatically, and verify production D1 reads and Worker version access.
+- **Rule going forward**: Check authenticated access through the provider's CLI before declaring an expired access token to be an access blocker.

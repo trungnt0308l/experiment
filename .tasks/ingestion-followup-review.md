@@ -29,8 +29,10 @@ Fixes the P1 and two P2 findings from PRs #3/#2: oversized advisories cannot blo
 
 ### Suggestions
 1. Rotate production GITHUB_API_TOKEN through the secret manager. Public access works from this host but shared Cloudflare egress quotas can differ.
-2. Renew the expired Cloudflare login, then deploy this reviewed build and inspect authenticated health. No production health or rollout result is claimed.
+2. Cloudflare access was refreshed automatically through Wrangler and verified by a read-only production D1 query and Worker version list. Deploy the reviewed build and inspect the next scheduled run; rollout has not been performed.
 3. The CISA host 403 is a separate read-only observation; its official GitHub mirror returns 200. Check Worker health before changing that connector.
 
 ### Validation
 112 tests passed; overall line coverage 81.16%, storage/network/alerts 100%, durable runtime 98.05%. Strict typecheck, ESLint, audit syntax checks, whitespace checks, and Worker dry-run build pass on Windows Node 24.21.0. Eight paced NVD checks plus public GitHub advisory access returned HTTP 200. Public audit exited 1 for the CISA website feed 403 rather than claiming complete success.
+
+Production read-only verification confirms the latest cron completed, NVD is healthy, five new drafts published, and the pending queue is empty. GHSA still has rejected-token/public-403 errors and collected 100 advisories despite the configured cap. Windows CI exposed one fixture clock dependency; baseline-event reuse fixes it without changing application behavior.

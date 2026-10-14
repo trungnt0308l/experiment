@@ -3,7 +3,7 @@
 ## Meta
 - **Status**: REVIEW
 - **Branch**: fix/ingestion-followup
-- **PR**: (pending)
+- **PR**: https://github.com/trungnt0308l/experiment/pull/4
 - **Created**: 2026-10-14
 - **Last Updated**: 2026-10-14
 
@@ -25,6 +25,8 @@ Investigate recurring ingestion alerts and validate/fix the P1 and two P2 findin
 - [2026-10-14] Full suite with coverage passed: 112 tests, 81.16% overall line coverage, storage/network/alerts 100%, runtime 98.05%. Worker dry-run build succeeded. Strict typecheck found a widened parameter-table tuple in a new test; corrected it and recorded the lesson. Redirecting Wrangler logs to workspace storage for a clean repeated build.
 - [2026-10-14] Final typecheck, lint (including new JavaScript tests), syntax and whitespace checks, and workspace-logged Worker dry-run build passed. The paced live read-only audit completed: all eight NVD checks, public GHSA, EUVD, public archive, and official KEV GitHub mirror returned 200. CISA website feed returned 403 from this host; the audit correctly exited 1 and explicitly marked incomplete evidence. These host checks do not prove current Worker source health; saved Cloudflare OAuth returns 401.
 - [2026-10-14] Saved senior self-review and committed all reviewed files as 4f52141. Git's default Windows credential store failed to persist credentials during push; retrying with the existing GitHub CLI credential helper. Extracted the audit request helper to meet the project's function-size convention; repeating its regression tests before pushing.
+- [2026-10-14] Pushed 00d87c2 with the existing GitHub CLI helper and created PR #4 against PR #3's deployed branch. Windows CI found a clock-sensitive metadata-only test fixture (publication time was regenerated twice); reuse one baseline event and repeat local checks/CI. Production code is unaffected by this test correction.
+- [2026-10-14] On the user's access question, checked Wrangler's OAuth lifecycle: the saved refresh token works automatically. Confirmed user/account read and D1/Worker script write scopes, a successful zero-write production D1 health query, and Worker version access. Latest production cron at 2026-10-14T13:00:58Z finished at 13:01:12Z, published five incidents, has zero queued work, and reports healthy NVD. GHSA still reports rejected token/public 403 and collected 100 records despite its configured cap; recovery remains enabled. No production writes/deployments performed.
 
 ## Verification Checklist
 - [x] Confirmed review defects fixed with regressions; operational token rotation remains an owner follow-up
@@ -34,4 +36,4 @@ Investigate recurring ingestion alerts and validate/fix the P1 and two P2 findin
 - [x] PRD and README updated for bounded retention, cap checkpoints, backoff, alert suppression, and audit behavior
 
 ## Issues / Blockers
-- Production D1 read-only health lookup returned HTTP 401 with the saved Cloudflare OAuth session. A production deployment requires a renewed session. Source GITHUB_API_TOKEN remains invalid and requires replacement by the owner.
+- Source GITHUB_API_TOKEN remains invalid and requires replacement by the owner. Cloudflare and GitHub access are verified. Code is prepared in PR #4; it has not been deployed or merged.
