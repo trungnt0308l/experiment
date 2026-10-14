@@ -38,3 +38,5 @@ Fixes the P1 and two P2 findings from PRs #3/#2: oversized advisories cannot blo
 Production read-only verification confirms the latest cron completed, NVD is healthy, five new drafts published, and the pending queue is empty. GHSA still has rejected-token/public-403 errors and collected 100 advisories despite the configured cap. Windows CI exposed one fixture clock dependency; baseline-event reuse fixes it without changing application behavior.
 
 Final Windows PR CI passed all required steps for d1d6258: https://github.com/trungnt0308l/experiment/actions/runs/38573823650.
+
+The subsequent quota/backoff P1 was reproduced and personally reviewed before commit 9679ad2; see .tasks/ingestion-followup-p1-review.md. All 124 tests and Windows PR CI now pass: https://github.com/trungnt0308l/experiment/actions/runs/38580845316.

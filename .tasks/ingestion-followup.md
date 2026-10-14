@@ -1,7 +1,7 @@
 # Task: ingestion-followup
 
 ## Meta
-- **Status**: REVIEW
+- **Status**: DONE
 - **Branch**: fix/ingestion-followup
 - **PR**: https://github.com/trungnt0308l/experiment/pull/4
 - **Created**: 2026-10-14
@@ -27,6 +27,7 @@ Investigate recurring ingestion alerts and validate/fix the P1 and two P2 findin
 - [2026-10-14] Ten new regressions pass, covering ten hourly runs, rolling-window resumes, legacy recovery, mixed real failures, genuine 429 backoff/alerts, fair normal/backfill progress without state deletion, total run budget, keyed NVD limits, and GHSA fallback warnings. Related reliability/operator tests pass: 48 tests. Updated PRD/README and logged the missed review condition. No changes committed yet; full verification and personal review are next.
 - [2026-10-14] Personally reviewed the runtime diff plus storage, source parsing/pagination, alerts, and diagnostic queue. Added two further regressions for a fully paused historical phase and concurrent quota/real HTTP failure. All twelve quota regressions pass. Saved the pre-commit review to .tasks/ingestion-followup-p1-review.md, including the exact scenario/verification command and issues addressed. Types, lint, and Worker dry-run build pass; final full coverage run precedes the commit.
 - [2026-10-14] Before committing: full suite passed all 124 tests, including D1 integration, with 81.44% overall line coverage, 98.21% runtime, and 100% network/storage/alerts. Types/lint/build/whitespace checks pass. Personal review and all verification results were saved before staging or committing the code. Preparing the reviewed fix on the existing PR #4 branch.
+- [2026-10-14] Committed and pushed the reviewed P1 fix as 9679ad2 to existing PR #4. Windows PR CI run 38580845316 passed clean install, types, lint, all 124 tests/coverage, and Worker build: https://github.com/trungnt0308l/experiment/actions/runs/38580845316. No production changes or review-thread messages were sent. This documentation-only commit records the result; the pre-commit review is retained as evidence.
 - [2026-10-14] Started task; read lessons and PRD, located experiment repository, retrieved both PR discussions. Existing branch is fix/ingestion-reliability; tracked node_modules have pre-existing local changes. Preparing dedicated branch without discarding user changes.
 - [2026-10-14] Verified all three review findings. GitHub confirms both PRs are open and main remains cb7b707. Synced remote using OpenSSL (Windows Schannel failed). Main is already an ancestor of deployed PR #3; rebase was unnecessary and rejected due to the pre-existing tracked dependency changes.
 - [2026-10-14] Created a dedicated working tree at D:/Working/cursor/experiment-ingestion-followup on fix/ingestion-followup, based on deployed PR #3. This permits writes without changing existing file ACLs or user changes. Implemented bounded oversized-record retention/quarantine, GHSA cap with partial-page checkpoints, 5xx cooldown/backoff, preservation of token warnings on failed fallback, and per-issue alert suppression.
