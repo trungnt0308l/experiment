@@ -40,3 +40,5 @@ Production read-only verification confirms the latest cron completed, NVD is hea
 Final Windows PR CI passed all required steps for d1d6258: https://github.com/trungnt0308l/experiment/actions/runs/38573823650.
 
 The subsequent quota/backoff P1 was reproduced and personally reviewed before commit 9679ad2; see .tasks/ingestion-followup-p1-review.md. All 124 tests and Windows PR CI now pass: https://github.com/trungnt0308l/experiment/actions/runs/38580845316.
+
+User authorized deployment on 2026-10-14. PR head 6f48cf3 deployed at 100% as 1cf8b4d9-1945-46e2-8553-fa4b3a9b6006; hourly cron and seven secret names preserved, no migration required, public/API smoke checks pass. Rollback version/bookmark and remaining source-auth/access observations are in the task log. The first scheduled execution after rollout remains unobserved; PR remains open.
