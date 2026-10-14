@@ -36,3 +36,5 @@ Fixes the P1 and two P2 findings from PRs #3/#2: oversized advisories cannot blo
 112 tests passed; overall line coverage 81.16%, storage/network/alerts 100%, durable runtime 98.05%. Strict typecheck, ESLint, audit syntax checks, whitespace checks, and Worker dry-run build pass on Windows Node 24.21.0. Eight paced NVD checks plus public GitHub advisory access returned HTTP 200. Public audit exited 1 for the CISA website feed 403 rather than claiming complete success.
 
 Production read-only verification confirms the latest cron completed, NVD is healthy, five new drafts published, and the pending queue is empty. GHSA still has rejected-token/public-403 errors and collected 100 advisories despite the configured cap. Windows CI exposed one fixture clock dependency; baseline-event reuse fixes it without changing application behavior.
+
+Final Windows PR CI passed all required steps for d1d6258: https://github.com/trungnt0308l/experiment/actions/runs/38573823650.
