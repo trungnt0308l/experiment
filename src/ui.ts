@@ -1,3 +1,5 @@
+import { PERSONAL_EMAIL_DOMAINS, workEmailError } from './work-email';
+
 export type IncidentSource = {
   label: string;
   url: string;
@@ -898,7 +900,7 @@ export function renderLandingPage(
       <div class="proof">Monitors CISA KEV and NVD</div>
       <div class="proof">Tracks GitHub Advisories, CERT, and vendor feeds</div>
       <div class="proof">All published incidents stay in the public archive</div>
-      <div class="proof">Email + Telegram delivery for fast triage</div>
+      <div class="proof">Weekly digest by email</div>
     </section>
 
     <section class="grid">
@@ -917,10 +919,11 @@ export function renderLandingPage(
       </article>
 
       <form class="panel" id="waitlist-form" method="post" action="/api/waitlist">
-        <h2>Request Access</h2>
-        <p class="sub">Register to receive AI incident alerts with source links, practical next steps, and enough context to decide whether you need immediate containment, patching, or stakeholder notification.</p>
+        <h2>Get the weekly AI security digest</h2>
+        <p class="sub">A source-cited roundup of AI security advisories and response steps, every Monday at 13:00 UTC (20:00 Bangkok). Confirm your work email to subscribe.</p>
         <label for="email">Work Email</label>
-        <input id="email" name="email" type="email" required />
+        <input id="email" name="email" type="email" autocomplete="email" maxlength="200" placeholder="you@company.com" aria-describedby="email-help status" required />
+        <p id="email-help" class="small">Use your company email. Personal and temporary email addresses are not supported.</p>
         <section class="register-reasons" aria-label="Why register now">
           <h3>3 reasons teams register before an incident</h3>
           <ul class="list">
@@ -931,7 +934,7 @@ export function renderLandingPage(
         </section>
 
         <div class="actions">
-          <button type="submit">Get Notified</button>
+          <button type="submit">Get the weekly digest</button>
         </div>
 
         <input type="hidden" name="source" value="landing-page" />
@@ -942,7 +945,7 @@ export function renderLandingPage(
         <input type="hidden" name="landingPath" id="landingPath" value="" />
 
         <div class="trust-strip">
-          We only use your details for access and product updates. No spam. No resale.
+          One weekly digest after you confirm. Unsubscribe at any time. No spam. No resale.
           <div class="links"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/security">Security</a></div>
         </div>
         <p id="status" class="small" aria-live="polite"></p>
@@ -998,7 +1001,7 @@ export function renderLandingPage(
       <h3>Frequently Asked Questions</h3>
       <dl>
         <dt>What do we receive after registering?</dt>
-        <dd>You receive concise incident alerts with severity context, likely impact, and recommended remediation actions.</dd>
+        <dd>Confirm your work email to receive a weekly digest each Monday with severity context, source links, and response steps. You can unsubscribe at any time.</dd>
         <dt>How is this different from generic threat feeds?</dt>
         <dd>Alerts are focused on AI-specific incidents and include direct source references so teams can validate findings fast.</dd>
         <dt>Who uses these alerts?</dt>
@@ -1016,6 +1019,8 @@ export function renderLandingPage(
   </main>
 
   <script>
+    const PERSONAL_EMAIL_DOMAINS = ${JSON.stringify(PERSONAL_EMAIL_DOMAINS)};
+    const validateWorkEmail = ${workEmailError.toString()};
     const form = document.getElementById('waitlist-form');
     const status = document.getElementById('status');
     const params = new URLSearchParams(window.location.search);
@@ -1050,14 +1055,23 @@ export function renderLandingPage(
     bindCtaTracking('nav-get-notified');
     bindCtaTracking('hero-get-notified');
 
+    emailInput.addEventListener('input', () => { emailInput.setCustomValidity(''); emailInput.removeAttribute('aria-invalid'); });
+    emailInput.addEventListener('blur', () => {
+      const error = validateWorkEmail(emailInput.value);
+      if (emailInput.value && error) { emailInput.setCustomValidity(error); emailInput.setAttribute('aria-invalid', 'true'); status.textContent = error; status.className = 'small err'; }
+    });
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       status.textContent = 'Submitting...';
       status.className = 'small';
 
+      emailInput.value = emailInput.value.trim();
+      const emailError = validateWorkEmail(emailInput.value);
+      emailInput.setCustomValidity(emailError || '');
       if (!emailInput.checkValidity()) {
         emailInput.reportValidity();
-        status.textContent = 'Please enter a valid work email.';
+        status.textContent = emailError || 'Please enter a valid work email.';
+        emailInput.setAttribute('aria-invalid', 'true');
         status.className = 'small err';
         track('waitlist_submit_error', { reason: 'invalid_email' });
         return;
@@ -1065,20 +1079,36 @@ export function renderLandingPage(
 
       const formData = new FormData(form);
 
-      const response = await fetch('/api/waitlist', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const body = await response.json();
-      if (!response.ok) {
-        status.textContent = 'Please check your input and try again.';
+      const button = form.querySelector('button[type="submit"]');
+      button.disabled = true;
+      let body;
+      try {
+        const response = await fetch('/api/waitlist', { method: 'POST', body: formData });
+        body = await response.json();
+        if (!response.ok) throw new Error(body.error || 'Please check your input and try again.');
+      } catch (error) {
+        status.textContent = error.message || 'Unable to connect. Please try again.';
         status.className = 'small err';
         track('waitlist_submit_error', { reason: 'api_error' });
         return;
-      }
+      } finally { button.disabled = false; }
 
-      if (body.status === 'already_joined') {
+      if (body.subscription_status === 'unavailable' || body.subscription_status === 'cooldown') {
+        status.textContent = body.subscription_status === 'cooldown'
+          ? 'Please wait up to an hour before requesting another confirmation.'
+          : 'This address could not be subscribed. Contact security@aisecurityradar.com for help.';
+        status.className = 'small err';
+        return;
+      }
+      if (body.subscription_status === 'confirmed') {
+        status.textContent = 'You are already subscribed. Your weekly digest arrives on Mondays at 13:00 UTC (20:00 Bangkok).';
+      } else if (body.subscription_status === 'confirmation_queued' || body.subscription_status === 'confirmation_pending') {
+        status.textContent = body.subscription_status === 'confirmation_queued'
+          ? 'Check your inbox to confirm your subscription. You will receive the digest after confirmation.'
+          : 'Confirmation was already requested. Use the link in your email, or request another after an hour.';
+        track('waitlist_submit_success', { source: formData.get('source') || 'landing-page' });
+        form.reset();
+      } else if (body.status === 'already_joined') {
         status.textContent = 'You are already on the waitlist. We will contact you soon.';
         track('waitlist_submit_duplicate', { source: formData.get('source') || 'landing-page' });
       } else {
@@ -1479,7 +1509,7 @@ export function renderIncidentDetailPage(
         </div>
       </section>
       <section class="incident-cta">
-        <h3 class="incident-cta-title">Want alerts like this in real time?</h3>
+        <h3 class="incident-cta-title">Get weekly AI security updates</h3>
         <p class="incident-cta-text">Get notified with incident context, likely impact, and response guidance.</p>
         <a class="incident-cta-btn" href="/#waitlist-form">Get Notified</a>
       </section>
@@ -1562,8 +1592,8 @@ export function renderPrivacyPage(siteUrl?: string): string {
   return renderPolicyShell(
     'Privacy Policy',
     `
-    <p>Last updated: February 14, 2026</p>
-    <p>We collect contact and profile information that you submit in the waitlist form, along with attribution metadata (for example UTM parameters) for demand analysis.</p>
+    <p>Last updated: October 20, 2026</p>
+    <p>We collect contact and profile information submitted through the work-email form, along with attribution metadata (for example UTM parameters).</p>
     <h2>What We Collect</h2>
     <ul>
       <li>Work email, company, role, and optional interests you provide.</li>
@@ -1572,12 +1602,14 @@ export function renderPrivacyPage(siteUrl?: string): string {
     <h2>How We Use Data</h2>
     <ul>
       <li>To contact you about access, onboarding, and product updates.</li>
+      <li>To send a weekly AI security digest after you confirm your email subscription.</li>
+      <li>To retain confirmation, unsubscribe preferences, and email acceptance records so we can honor your choices and retry delivery safely.</li>
       <li>To measure campaign performance and improve product positioning.</li>
     </ul>
     <h2>Data Sharing</h2>
     <p>We do not sell your personal data. We may use vetted subprocessors for hosting, analytics, and notification delivery.</p>
     <h2>Your Rights</h2>
-    <p>You can request access, correction, or deletion by emailing security@aisecurityradar.com.</p>
+    <p>Every digest includes an unsubscribe link. Confirmation is required before digest delivery, and unsubscribing cancels queued newsletter messages. You can request access, correction, or deletion by emailing security@aisecurityradar.com.</p>
     `,
     '/privacy',
     siteUrl
@@ -1757,6 +1789,15 @@ export function renderAdminOpsPage(siteUrl?: string): string {
       </div>
       <p id="status" class="muted" aria-live="polite"></p>
       <div id="source-health" aria-live="polite"></div>
+      <details>
+        <summary>Weekly email digest</summary>
+        <p class="muted">Sends to confirmed work-email subscribers on Mondays at 13:00 UTC (20:00 Bangkok). Existing signups receive a confirmation invitation first.</p>
+        <button class="btn secondary" id="newsletter-health-btn" type="button">Check Newsletter Status</button>
+        <button class="btn secondary" id="newsletter-preview-btn" type="button">Preview Last 7 Days</button>
+        <button class="btn" id="newsletter-run-btn" type="button">Process Pending Newsletter Mail</button>
+        <pre id="newsletter-status" aria-live="polite"></pre>
+        <iframe id="newsletter-preview" title="Weekly digest email preview" sandbox="" style="width:100%;height:600px;border:1px solid #d9d2c7" hidden></iframe>
+      </details>
       <details>
         <summary>Recover historical advisories</summary>
         <label for="backfill-from">Advisories disclosed since</label>
@@ -1946,6 +1987,23 @@ export function renderAdminOpsPage(siteUrl?: string): string {
       }
     });
 
+    ['health', 'preview', 'run'].forEach(action => {
+      const button = document.getElementById('newsletter-' + action + '-btn');
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        const output = document.getElementById('newsletter-status');
+        try {
+          const body = await api('/api/admin/newsletter/' + action, action === 'run' ? { method: 'POST' } : {});
+          output.textContent = JSON.stringify(body.newsletter || { subject: body.subject, total: body.content.total, previewOnly: true }, null, 2);
+          if (body.html) {
+            const preview = document.getElementById('newsletter-preview');
+            preview.srcdoc = body.html;
+            preview.hidden = false;
+          }
+        } catch (error) { output.textContent = error.message || 'Unable to load newsletter status.'; }
+        finally { button.disabled = false; }
+      });
+    });
     healthBtn.addEventListener('click', async () => {
       healthBtn.disabled = true;
       try {

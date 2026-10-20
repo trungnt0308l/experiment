@@ -18,6 +18,9 @@ import { createDraftFromIngestionEvent, normalizeLongSummaries, runIngestionPipe
 import { ingestionHealth, previewBackfill } from './ingestion-runtime';
 import { acquireLease, LEASE_KEY, readState, releaseLease, writeState } from './ingestion-storage';
 import { llmEnrichIncident } from './llm';
+import { workEmailError } from './work-email';
+import { newsletterSite, requestConfirmation } from './newsletter-store';
+import { registerNewsletterRoutes } from './newsletter-routes';
 
 export type EnvBindings = {
   APP_NAME?: string;
@@ -51,6 +54,7 @@ export type EnvBindings = {
   AUTO_PUBLISH_MIN_CONFIDENCE?: string;
   ADMIN_API_TOKEN?: string;
   INGESTION_ALERTS_ENABLED?: string;
+  NEWSLETTER_ENABLED?: string;
   RESEND_API_KEY?: string;
   NOTIFY_EMAIL_TO?: string;
   TELEGRAM_BOT_TOKEN?: string;
@@ -575,7 +579,7 @@ async function enrichPublishedDraft(env: EnvBindings, draftId: number): Promise<
 }
 
 const schema = z.object({
-  email: z.string().email().max(200),
+  email: z.string().email().max(200).refine(value => !workEmailError(value), 'Work email required'),
   company: z.string().max(120).optional().or(z.literal('')).transform((value) => value ?? ''),
   role: z.string().max(120).optional().or(z.literal('')).transform((value) => value ?? ''),
   interests: z.string().max(240).optional().or(z.literal('')).transform((value) => value ?? ''),
@@ -779,7 +783,7 @@ function toPayload(body: Record<string, string | File>): Record<string, string |
 async function parsePayload(c: Context<{ Bindings: EnvBindings }>): Promise<Record<string, string | undefined>> {
   const contentType = c.req.header('content-type') ?? '';
   if (contentType.includes('application/json')) {
-    return (await c.req.json()) as Record<string, string | undefined>;
+    return z.record(z.string()).parse(await c.req.json());
   }
   const body = await c.req.parseBody();
   return toPayload(body as Record<string, string | File>);
@@ -932,7 +936,7 @@ export function createApp() {
     await next();
     c.res.headers.set('X-Content-Type-Options', 'nosniff');
     c.res.headers.set('X-Frame-Options', 'DENY');
-    c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    c.res.headers.set('Referrer-Policy', c.req.path.startsWith('/newsletter/') ? 'no-referrer' : 'strict-origin-when-cross-origin');
     c.res.headers.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
     if (c.req.path.startsWith('/admin') || c.req.path.startsWith('/api/') || c.res.status >= 400) {
       c.res.headers.set('X-Robots-Tag', 'noindex, nofollow');
@@ -1605,17 +1609,22 @@ ${entries}
       return c.json({ ok: false, error: 'Too many requests. Please retry shortly.' }, 429);
     }
 
-    const payload = await parsePayload(c);
+    const payload = await parsePayload(c).catch(() => null);
+    if (!payload) return c.json({ ok: false, error: 'Please check your input and try again.' }, 400);
 
     const parsed = schema.safeParse(normalize(payload));
     if (!parsed.success) {
       return c.json(
-        { ok: false, error: 'Invalid input', details: parsed.error.issues.map((i) => i.path.join('.')) },
+        { ok: false, error: workEmailError(payload.email) ?? 'Invalid input', details: parsed.error.issues.map((i) => i.path.join('.')) },
         400
       );
     }
 
+    if (c.env.NEWSLETTER_ENABLED === 'true' && (!c.env.DB || !c.env.RESEND_API_KEY))
+      return c.json({ ok: false, error: 'Subscriptions are temporarily unavailable. Please try again shortly.' }, 503);
     const result = await saveSignup(c.env.DB, parsed.data);
+    const subscription = c.env.NEWSLETTER_ENABLED === 'true' && c.env.DB
+      ? await requestConfirmation(c.env.DB, parsed.data.email, newsletterSite(c.env)) : undefined;
 
     if (result.inserted) {
       const notifyPromise = notifySignup(c.env, parsed.data);
@@ -1628,10 +1637,12 @@ ${entries}
       {
         ok: true,
         status: result.inserted ? 'joined' : 'already_joined',
+        ...(subscription ? { subscription_status: subscription } : {}),
       },
       result.inserted ? 201 : 200
     );
   });
 
+  registerNewsletterRoutes(app, isAdminAuthorized);
   return app;
 }

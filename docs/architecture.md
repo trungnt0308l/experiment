@@ -65,3 +65,7 @@ Rollout executed at the user's request on 2026-10-20 at 14:34 UTC: version `669b
 - [Official CISA KEV mirror](https://github.com/cisagov/kev-data)
 
 If sustained backlog exceeds the bounded D1 processor, move source tasks and processing to Cloudflare Queues with independent retries/dead-letter handling, preserving stable identities and stage-before-checkpoint ordering. That is a measured scaling decision, not a prerequisite for the observed failures.
+
+## Newsletter isolation
+
+The work-email weekly digest uses independent D1 state, subscriber consent and an outbox through the existing Resend service. Its five-minute trigger never invokes source collection. See [newsletter operations](newsletter.md) for confirmation, schedule, retries, operator controls and rollback details.

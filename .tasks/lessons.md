@@ -141,3 +141,27 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: Fixtures and inferred types did not reflect the actual runtime/configuration, and the new alert policy initially grouped upstream quota rejection with transient timeouts.
 - **Fix applied**: Supply bindings/origin explicitly, test ordinary repeated feed scans, use the supported named Cache API, declare header records and a minimal waitUntil contract, and retain immediate action on genuine upstream 429. Review added tests for credential warnings across phases and constrained canonical redirects against open redirects.
 - **Rule going forward**: Test runtime contracts using actual Workers simulation; distinguish quota/configuration failures from retryable network failures, and exercise cross-phase diagnostics before committing. Use file-backed Node scripts on PowerShell instead of quote-heavy inline JavaScript.
+
+## [2026-10-20] work-email-weekly-digest: Fixture contracts and atomic patch checks
+- **What went wrong**: Initial newsletter tests omitted a required legacy interests column and used an unsupported admin header; a multi-file documentation patch failed on an unverified final context.
+- **Root cause**: Fixtures assumed schema/auth details; the patch included an unnecessary speculative context.
+- **Fix applied**: Match the real schema and Bearer authentication; rerun focused tests; apply documentation with verified contexts.
+- **Rule going forward**: Read table constraints and shared auth before writing fixtures. Avoid speculative trailing changes in atomic multi-file patches and confirm the entire patch applied before proceeding.
+
+## [2026-10-20] work-email-weekly-digest: Deterministic consent fixtures and browser targets
+- **What went wrong**: A late-confirmation test flaked when confirmation and snapshot shared one millisecond; browser verification initially used the simulator bind address, selected an extension target, and requested an absent admin route.
+- **Root cause**: Fixture timing and browser target assumptions were implicit. Review also found that unsubscribe could remove operator suppression.
+- **Fix applied**: Give the fixture an explicit later timestamp; use loopback, a fresh page target and /admin/ops. Preserve suppression and add a regression.
+- **Rule going forward**: Set temporal ordering explicitly in consent tests; choose actual browser page targets and known routes. Unsubscribe must never weaken provider/operator suppression.
+
+## [2026-10-20] work-email-weekly-digest: Legacy import must preserve opt-out
+- **What went wrong**: Self-review found that replaying an unfinished import page could request another confirmation for a previously unsubscribed address after the hourly throttle expired.
+- **Root cause**: Legacy migration reused the explicit user re-signup function without distinguishing existing subscriber consent.
+- **Fix applied**: Legacy import skips all existing subscriber records, and a cursor replay regression proves unsubscribed addresses remain excluded.
+- **Rule going forward**: Background imports must never reenroll existing contacts; only a new explicit signup may initiate reconfirmation after opt-out. Preserve original ledger bytes when appending on Windows.
+
+## [2026-10-20] work-email-weekly-digest: Reflect no-op outcomes and verify installed configuration
+- **What went wrong**: PR review found that confirmed or suppressed signups were told to expect a new confirmation despite a deliberate no-op. It also flagged redaction against an obsolete vendored Wrangler schema.
+- **Root cause**: A void persistence function concealed the actual subscription result; tracked dependencies differed from clean lockfile installs.
+- **Fix applied**: Return and display actual queued/pending/confirmed/cooldown/unavailable outcomes, test no duplicate mail, verify the installed 4.150 schema and require returned production redaction settings.
+- **Rule going forward**: UI success messages must reflect durable side effects. Validate tooling claims against clean installed dependencies and deployed provider settings, not stale tracked node_modules.
