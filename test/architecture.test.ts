@@ -171,6 +171,16 @@ describe('source isolation', () => {
 });
 
 describe('independent optional enrichment', () => {
+  test('five-minute newsletter cron never invokes collection or enrichment', async () => {
+    const DB = seed();
+    const pending: Promise<unknown>[] = [];
+    await worker.scheduled({ cron: '*/5 * * * *' } as ScheduledController,
+      { DB, NEWSLETTER_ENABLED: 'true', RESEND_API_KEY: 'test-only' },
+      { waitUntil: promise => { pending.push(promise); } });
+    await Promise.all(pending);
+    expect(await DB.prepare("SELECT key FROM newsletter_state WHERE key='latest'").first()).toBeTruthy();
+    expect(await DB.prepare("SELECT key FROM ingestion_state WHERE key IN ('run:latest:cron','enrichment:latest')").first()).toBeNull();
+  });
   const seed = () => seedIncidentRows([1, 2].map(id => ({ draft_id: id, title: `LLM vulnerability ${id}`, slug: `llm-${id}`,
     url: 'https://example.com', event_published_at: '2026-02-27T00:00:00Z', published_at: '2026-02-27T00:00:00Z', created_at: '2026-02-27T00:00:00Z' })));
 

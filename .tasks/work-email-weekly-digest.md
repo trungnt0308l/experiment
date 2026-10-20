@@ -1,0 +1,44 @@
+# Task: work-email-weekly-digest
+
+## Meta
+- **Status**: VERIFICATION
+- **Branch**: feat/work-email-weekly-digest
+- **PR**: pending
+- **Created**: 2026-10-20
+- **Last Updated**: 2026-10-20
+
+## Objective
+Require work email at signup and implement a useful, reliable weekly incident digest using the existing mailing service.
+
+## Plan
+- [x] Read lessons, requirements, signup/mail code, production subscriber metadata, and provider documentation.
+- [x] Sync main and isolate a task branch from current deployed code without disturbing local changes.
+- [x] Implement shared frontend/backend work-email validation and clear form feedback.
+- [x] Implement weekly digest content, recipient eligibility, delivery/retry tracking, and unsubscribe support using the existing service.
+- [x] Add behavioral tests covering validation, subscriptions, digest windows/content, retries, and unsubscribe.
+- [x] Run full tests with coverage, lint, type checking, build, and manual/runtime verification.
+- [x] Update PRD, operational docs, lessons, task evidence, and senior self-review.
+- [ ] Commit, push, create PR, and complete authorized rollout after verification.
+
+## Progress Log
+- [2026-10-20] Started task. Read repository lessons and prior rollout task. Current original checkout remains fix/ingestion-reliability with pre-existing dependency changes; latest deployed app is PR #5 in .worktrees/robust-architecture-seo. Preserve existing changes and base new work on deployed fixes.
+
+## Verification Checklist
+- [ ] Acceptance criteria met
+- [x] Tests pass with coverage
+- [x] Lint/type errors absent
+- [x] Build passes
+- [x] Manual verification executed and documented
+- [x] PRD updated
+- [x] PR self-review complete
+
+## Issues / Blockers
+(none)
+
+- [2026-10-20] Synced main and deployed branch in isolated worktree feat/work-email-weekly-digest. Read form-cro, email-sequence, Workers and Wrangler skills; reviewed current Resend sending API, idempotency and one-click unsubscribe documentation.
+- [2026-10-20] Production SELECT-only audit found 31 existing signups: 25 personal-domain rows and 6 custom-domain rows. No recipients were contacted during discovery. Existing operator alerts use Resend /emails; subscriber delivery did not exist.
+- [2026-10-20] User requires confirmation for existing eligible signups and chose Monday 13:00 UTC / 20:00 Bangkok. Implemented shared work-email policy, atomic pending subscription/outbox creation, deliberate POST confirmation, unsubscribe, immutable weekly editions, bounded delivery with stable provider idempotency keys, and admin preview/status. Additive migration and independent newsletter state preserve ingestion isolation. Accepted outbox payloads are cleared to reduce token/content retention.
+- [2026-10-20] Initial regression suite passed 160 tests; type checking passed. Adding focused subscription, scheduling and delivery regressions before final verification.
+- [2026-10-20 15:05 UTC] Final application verification passed: 206 tests in 14 files; coverage statements 83.94%, lines 85.07%, branches 73.86%. Strict types, ESLint and production dry-run bundle passed. Real D1 simulation proved six concurrent signups create one matching subscriber/outbox and four concurrent newsletter jobs send once. Independent scheduler regression passes.
+- [2026-10-20 15:05 UTC] Built-Worker manual checks in headless Chrome verified inline Gmail rejection, successful work signup/confirmation feedback, scanner-safe GET and explicit POST confirmation, 390px mobile layout without horizontal overflow, and admin newsletter controls. Evidence stored in ignored .wrangler/manual-newsletter.json and newsletter-mobile.png; no production writes or sends in local verification.
+- [2026-10-20 15:05 UTC] Updated PRD/runbook and completed senior self-review. Preserved operator suppression across unsubscribe, cleared accepted payloads, and corrected explicit-time fixture and admin route checks. Rollout and real provider acceptance remain to verify.

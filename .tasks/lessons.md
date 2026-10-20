@@ -141,3 +141,15 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: Fixtures and inferred types did not reflect the actual runtime/configuration, and the new alert policy initially grouped upstream quota rejection with transient timeouts.
 - **Fix applied**: Supply bindings/origin explicitly, test ordinary repeated feed scans, use the supported named Cache API, declare header records and a minimal waitUntil contract, and retain immediate action on genuine upstream 429. Review added tests for credential warnings across phases and constrained canonical redirects against open redirects.
 - **Rule going forward**: Test runtime contracts using actual Workers simulation; distinguish quota/configuration failures from retryable network failures, and exercise cross-phase diagnostics before committing. Use file-backed Node scripts on PowerShell instead of quote-heavy inline JavaScript.
+
+## [2026-10-20] work-email-weekly-digest: Fixture contracts and atomic patch checks
+- **What went wrong**: Initial newsletter tests omitted a required legacy interests column and used an unsupported admin header; a multi-file documentation patch failed on an unverified final context.
+- **Root cause**: Fixtures assumed schema/auth details; the patch included an unnecessary speculative context.
+- **Fix applied**: Match the real schema and Bearer authentication; rerun focused tests; apply documentation with verified contexts.
+- **Rule going forward**: Read table constraints and shared auth before writing fixtures. Avoid speculative trailing changes in atomic multi-file patches and confirm the entire patch applied before proceeding.
+
+## [2026-10-20] work-email-weekly-digest: Deterministic consent fixtures and browser targets
+- **What went wrong**: A late-confirmation test flaked when confirmation and snapshot shared one millisecond; browser verification initially used the simulator bind address, selected an extension target, and requested an absent admin route.
+- **Root cause**: Fixture timing and browser target assumptions were implicit. Review also found that unsubscribe could remove operator suppression.
+- **Fix applied**: Give the fixture an explicit later timestamp; use loopback, a fresh page target and /admin/ops. Preserve suppression and add a regression.
+- **Rule going forward**: Set temporal ordering explicitly in consent tests; choose actual browser page targets and known routes. Unsubscribe must never weaken provider/operator suppression.

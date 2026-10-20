@@ -3,6 +3,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { expect, test } from 'vitest';
 import { acquireLease, releaseLease, stageEvent } from '../src/ingestion-storage';
 import { storeEvent, storeDraft, toStoredEvent, buildDraftPost } from '../src/ingestion';
+import { requestConfirmation } from '../src/newsletter-store';
+import { runNewsletterJobs } from '../src/newsletter-delivery';
 
 test('all migrations and recovery primitives work with Cloudflare D1, including atomic lease ownership', async () => {
   const mf = new Miniflare(convertV4MiniflareOptions({ modules: true, script: 'export default {fetch(){return new Response("ok")}}',
@@ -26,5 +28,15 @@ test('all migrations and recovery primitives work with Cloudflare D1, including 
     const draft = buildDraftPost(stored, now, true);
     expect((await storeDraft(db, inserted.eventId, draft, now)).inserted).toBe(true);
     expect((await storeDraft(db, inserted.eventId, draft, now)).inserted).toBe(false);
+    await Promise.all(Array.from({ length: 6 }, () => requestConfirmation(db, 'reader@company.example', 'https://aisecurityradar.com')));
+    expect(await db.prepare('SELECT count(*) AS count FROM newsletter_subscribers').first('count')).toBe(1);
+    expect(await db.prepare('SELECT count(*) AS count FROM newsletter_outbox').first('count')).toBe(1);
+    const subscriber = await db.prepare('SELECT confirmation_hash FROM newsletter_subscribers').first<{ confirmation_hash: string }>();
+    expect(await db.prepare('SELECT id FROM newsletter_outbox').first('id')).toBe(`confirm-${subscriber?.confirmation_hash}`);
+    let sends = 0;
+    await Promise.all(Array.from({ length: 4 }, () => runNewsletterJobs({ DB: db, RESEND_API_KEY: 'test-only', NEWSLETTER_ENABLED: 'true' },
+      async () => { sends++; return new Response(JSON.stringify({ id: 'provider-acceptance' })); })));
+    expect(sends).toBe(1);
+    expect(await db.prepare('SELECT status FROM newsletter_outbox').first('status')).toBe('accepted');
   } finally { await mf.dispose(); }
 }, 30000);
