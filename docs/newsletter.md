@@ -10,6 +10,8 @@ Signup atomically persists a pending subscriber and confirmation outbox item. Co
 
 Tokens are random 256-bit values; subscribers store SHA-256 confirmation hashes. Pending outbox bodies retain the original link only for exact retries. Accepted message bodies are cleared. Confirmation/unsubscribe pages are uncached, noindex and use `no-referrer`; Worker logging redacts query strings.
 
+Signup returns the actual result: confirmation queued, already pending, already confirmed, temporarily throttled or unavailable. The form never claims a new email for an already confirmed or suppressed subscription.
+
 Footer unsubscribe links open a deliberate form. RFC 8058 one-click clients POST to the same URL and receive an empty 200. Unsubscribe changes status and cancels pending/sending work atomically. An already in-flight provider request can still be accepted. Later signups require fresh confirmation.
 
 ## Scheduling and content
@@ -41,6 +43,8 @@ Inspect failed/review counts alongside latest job status: a completed job may co
 ## Rollout and rollback
 
 Apply the additive migration before deployment. Preserve dashboard variables/secrets with `--keep-vars`; ensure `NEWSLETTER_ENABLED=true` on the new version. Verify all three triggers, HTTPS origin, public personal-domain rejection and aggregate pending/accepted counts without exposing addresses. Cron propagation can take several minutes.
+
+Always run the lockfile's clean `npm ci` toolchain. The repository contains obsolete tracked dependency files from Wrangler 4.65; the current lockfile and actual deployment use 4.150. Its installed Observability schema and CLI validation support `redact_query_string`. Verify the returned production `settings.observability.redact_query_string` is true after deployment; do not infer redaction from an old vendored schema. The [Cloudflare Workers API](https://developers.cloudflare.com/api/resources/workers/) documents this log/trace control.
 
 To pause sending, deploy with `NEWSLETTER_ENABLED=false`. To restore the preceding application version `669b6f74-f01a-447c-9e85-3d8838af311a`, also restore only hourly and minute-15 triggers: older code interprets the five-minute expression as ingestion. Retain additive tables, consent and delivery history.
 

@@ -1623,8 +1623,8 @@ ${entries}
     if (c.env.NEWSLETTER_ENABLED === 'true' && (!c.env.DB || !c.env.RESEND_API_KEY))
       return c.json({ ok: false, error: 'Subscriptions are temporarily unavailable. Please try again shortly.' }, 503);
     const result = await saveSignup(c.env.DB, parsed.data);
-    if (c.env.NEWSLETTER_ENABLED === 'true' && c.env.DB)
-      await requestConfirmation(c.env.DB, parsed.data.email, newsletterSite(c.env));
+    const subscription = c.env.NEWSLETTER_ENABLED === 'true' && c.env.DB
+      ? await requestConfirmation(c.env.DB, parsed.data.email, newsletterSite(c.env)) : undefined;
 
     if (result.inserted) {
       const notifyPromise = notifySignup(c.env, parsed.data);
@@ -1637,7 +1637,7 @@ ${entries}
       {
         ok: true,
         status: result.inserted ? 'joined' : 'already_joined',
-        ...(c.env.NEWSLETTER_ENABLED === 'true' ? { subscription_status: 'confirmation_required' } : {}),
+        ...(subscription ? { subscription_status: subscription } : {}),
       },
       result.inserted ? 201 : 200
     );

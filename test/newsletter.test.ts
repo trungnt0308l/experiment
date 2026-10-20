@@ -121,7 +121,7 @@ describe('subscription lifecycle', () => {
     const response = await app.request('/api/waitlist', { method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': 'newsletter-work' },
       body: JSON.stringify({ email: 'p@company.example', company: 'Example', role: 'Engineer' }) }, env(db));
     expect(response.status).toBe(201);
-    expect(await response.json()).toMatchObject({ subscription_status: 'confirmation_required' });
+    expect(await response.json()).toMatchObject({ subscription_status: 'confirmation_queued' });
     expect(await db.prepare('SELECT status FROM newsletter_subscribers').first('status')).toBe('pending');
     expect(await queued(db)).toHaveLength(1);
   });
@@ -289,6 +289,21 @@ describe('Resend outbox delivery', () => {
 });
 
 describe('newsletter operator controls', () => {
+  test('signup feedback reflects queued, pending, confirmed and suppressed subscriptions without promising nonexistent mail', async () => {
+    const { db } = createTestDb(), app = createApp(), bindings = env(db);
+    const signup = async () => {
+      const response = await app.request('/api/waitlist', { method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': 'newsletter-feedback' },
+        body: JSON.stringify({ email: 'status@company.example' }) }, bindings);
+      return response.json();
+    };
+    expect(await signup()).toMatchObject({ subscription_status: 'confirmation_queued' });
+    expect(await signup()).toMatchObject({ subscription_status: 'confirmation_pending' });
+    await db.prepare("UPDATE newsletter_subscribers SET status='confirmed'").run();
+    expect(await signup()).toMatchObject({ subscription_status: 'confirmed' });
+    await db.prepare("UPDATE newsletter_subscribers SET status='suppressed'").run();
+    expect(await signup()).toMatchObject({ subscription_status: 'unavailable' });
+    expect(await queued(db)).toHaveLength(1);
+  });
   test('protects preview and health; preview is read-only and frontend scripts parse', async () => {
     const db = incidentDb(), app = createApp(), bindings = env(db);
     for (const endpoint of ['health', 'preview', 'run']) {

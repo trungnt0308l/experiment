@@ -1093,8 +1093,19 @@ export function renderLandingPage(
         return;
       } finally { button.disabled = false; }
 
-      if (body.subscription_status === 'confirmation_required') {
-        status.textContent = 'Check your inbox to confirm your subscription. You will receive the digest after confirmation.';
+      if (body.subscription_status === 'unavailable' || body.subscription_status === 'cooldown') {
+        status.textContent = body.subscription_status === 'cooldown'
+          ? 'Please wait up to an hour before requesting another confirmation.'
+          : 'This address could not be subscribed. Contact security@aisecurityradar.com for help.';
+        status.className = 'small err';
+        return;
+      }
+      if (body.subscription_status === 'confirmed') {
+        status.textContent = 'You are already subscribed. Your weekly digest arrives on Mondays at 13:00 UTC (20:00 Bangkok).';
+      } else if (body.subscription_status === 'confirmation_queued' || body.subscription_status === 'confirmation_pending') {
+        status.textContent = body.subscription_status === 'confirmation_queued'
+          ? 'Check your inbox to confirm your subscription. You will receive the digest after confirmation.'
+          : 'Confirmation was already requested. Use the link in your email, or request another after an hour.';
         track('waitlist_submit_success', { source: formData.get('source') || 'landing-page' });
         form.reset();
       } else if (body.status === 'already_joined') {

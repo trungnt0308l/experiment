@@ -14,12 +14,14 @@ Replace collection-only signup with confirmed work-email subscriptions and a Mon
 - [x] API validation and admin authentication verified
 - [x] Labels, inline feedback, live regions and explicit keyboard-operable confirmation/unsubscribe forms
 - [x] Headless Chrome mobile viewport 390px has no horizontal overflow
-- [x] 207 tests pass, including real Cloudflare D1 concurrent signup and newsletter lease behavior
+- [x] 208 tests pass, including real Cloudflare D1 concurrent signup and newsletter lease behavior
 - [x] No unresolved TODO/FIXME introduced
 - [x] No dependencies added; clean lockfile install reported zero vulnerabilities
 - [x] Work-email restriction, consent requirement and first-edition behavior documented in PRD and runbook
 
 ### Issues Found
+0. PR feedback correctly identified inaccurate confirmation feedback for confirmed/suppressed addresses. The persistence function now returns its actual outcome (including atomic-race outcomes), and API/UI render queued, pending, confirmed, cooldown and unavailable messages. Integration tests and built-Worker Chrome checks verify no nonexistent mail is promised.
+0. PR feedback questioned the redaction configuration. Inspection found obsolete tracked Wrangler 4.65 dependency files, while clean npm ci installs lockfile version 4.150. The actual installed schema explicitly defines redact_query_string and the CLI validates it as an allowed boolean. Cloudflare's current API documents the property. Production returned settings will verify the deployed value; no unsupported workaround or dependency upgrade is needed.
 0. Replaying the legacy import cursor after a crash could re-invite a previously unsubscribed address after the one-hour throttle expired. Legacy import now skips every existing subscriber record; a regression preserves opt-out during replay. Explicit homepage re-signup still requires fresh confirmation.
 1. An unsubscribed operator-suppressed subscriber could otherwise request a new invitation. Fixed by preserving suppressed status during unsubscribe and verified with a regression.
 2. Accepted messages unnecessarily retained confirmation links/content. Accepted updates now clear payloads while pending retries retain immutable requests.
@@ -31,7 +33,7 @@ Replace collection-only signup with confirmed work-email subscriptions and a Mon
 2. Reassess the personal/disposable-domain policy as new providers appear. Custom domains plus confirmation cannot establish a person's employment.
 
 ### Verification evidence
-- Full test/coverage suite: 207 tests, 14 files, statements 84%, lines 85.07%, branches 73.99%.
-- Strict TypeScript and ESLint pass. Production Wrangler dry-run bundle passes (434.04 KiB; gzip 98.86 KiB).
+- Full test/coverage suite: 208 tests, 14 files, statements 84%, lines 85.11%, branches 73.8%.
+- Strict TypeScript and ESLint pass. Production Wrangler dry-run bundle passes (435.33 KiB; gzip 99.11 KiB).
 - Built Worker + real local D1 + headless Chrome: personal-domain feedback, work signup, explicit confirmation, mobile layout, authenticated read-only admin preview.
 - Production rollout and actual confirmation acceptance recorded separately in the task log after deployment; not inferred from mocks.

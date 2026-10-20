@@ -159,3 +159,9 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: Legacy migration reused the explicit user re-signup function without distinguishing existing subscriber consent.
 - **Fix applied**: Legacy import skips all existing subscriber records, and a cursor replay regression proves unsubscribed addresses remain excluded.
 - **Rule going forward**: Background imports must never reenroll existing contacts; only a new explicit signup may initiate reconfirmation after opt-out. Preserve original ledger bytes when appending on Windows.
+
+## [2026-10-20] work-email-weekly-digest: Reflect no-op outcomes and verify installed configuration
+- **What went wrong**: PR review found that confirmed or suppressed signups were told to expect a new confirmation despite a deliberate no-op. It also flagged redaction against an obsolete vendored Wrangler schema.
+- **Root cause**: A void persistence function concealed the actual subscription result; tracked dependencies differed from clean lockfile installs.
+- **Fix applied**: Return and display actual queued/pending/confirmed/cooldown/unavailable outcomes, test no duplicate mail, verify the installed 4.150 schema and require returned production redaction settings.
+- **Rule going forward**: UI success messages must reflect durable side effects. Validate tooling claims against clean installed dependencies and deployed provider settings, not stale tracked node_modules.

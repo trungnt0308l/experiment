@@ -6,6 +6,7 @@ import { workEmailError } from './work-email';
 export type Subscriber = { id: number; email: string; status: string; unsubscribe_token: string;
   confirmation_hash: string | null; confirmation_expires_at: string | null; last_confirmation_at: string | null };
 export const TOKEN_PATTERN = /^[a-f0-9]{64}$/;
+export type ConfirmationResult = 'confirmation_queued' | 'confirmation_pending' | 'confirmed' | 'unavailable' | 'cooldown' | 'unchanged';
 export function newsletterSite(env: EnvBindings): string {
   const url = new URL(env.SITE_URL ?? 'https://aisecurityradar.com');
   if (url.protocol !== 'https:' && url.hostname !== 'localhost') throw new Error('Newsletter requires an HTTPS site URL');
@@ -29,19 +30,21 @@ async function queueMail(db: D1Database, id: string, subscriberId: number, kind:
     VALUES (?1,?2,?3,?4,?5,?6,?6)`).bind(id, subscriberId, editionId, kind, JSON.stringify(payload), now).run();
 }
 
-export async function requestConfirmation(db: D1Database, rawEmail: string, site: string, options: { skipExisting?: boolean } = {}): Promise<void> {
+export async function requestConfirmation(db: D1Database, rawEmail: string, site: string, options: { skipExisting?: boolean } = {}): Promise<ConfirmationResult> {
   const email = rawEmail.trim().toLowerCase();
-  if (workEmailError(email)) return;
+  if (workEmailError(email)) return 'unavailable';
   const old = await db.prepare('SELECT * FROM newsletter_subscribers WHERE email=?1').bind(email).first<Subscriber>();
-  if (old && options.skipExisting) return;
-  if (old?.status === 'confirmed' || old?.status === 'suppressed') return;
-  if (old?.last_confirmation_at && Date.now() - Date.parse(old.last_confirmation_at) < 3600000) return;
+  if (old && options.skipExisting) return 'unchanged';
+  if (old?.status === 'confirmed') return 'confirmed';
+  if (old?.status === 'suppressed') return 'unavailable';
+  if (old?.last_confirmation_at && Date.now() - Date.parse(old.last_confirmation_at) < 3600000)
+    return old.status === 'pending' ? 'confirmation_pending' : 'cooldown';
   const token = randomToken(), hash = await sha256Hex(token), now = new Date().toISOString();
   const expires = new Date(Date.now() + 7 * 86400000).toISOString();
   const unsubscribeToken = old?.unsubscribe_token ?? randomToken();
   const payload = confirmationMail(email, `${site}/newsletter/confirm?token=${token}`,
     `${site}/newsletter/unsubscribe?token=${unsubscribeToken}`);
-  await db.batch([db.prepare(`INSERT INTO newsletter_subscribers(email,status,confirmation_hash,confirmation_expires_at,unsubscribe_token,created_at,updated_at,last_confirmation_at)
+  const results = await db.batch([db.prepare(`INSERT INTO newsletter_subscribers(email,status,confirmation_hash,confirmation_expires_at,unsubscribe_token,created_at,updated_at,last_confirmation_at)
     VALUES (?1,'pending',?2,?3,?4,?5,?5,?5) ON CONFLICT(email) DO UPDATE SET status='pending',
     confirmation_hash=excluded.confirmation_hash,confirmation_expires_at=excluded.confirmation_expires_at,
     updated_at=excluded.updated_at,last_confirmation_at=excluded.last_confirmation_at
@@ -52,6 +55,10 @@ export async function requestConfirmation(db: D1Database, rawEmail: string, site
       SELECT ?1,id,'confirmation',?2,?3,?3 FROM newsletter_subscribers WHERE email=?4 AND confirmation_hash=?5`)
       .bind(`confirm-${hash}`, JSON.stringify(payload), now, email, hash),
   ]);
+  if (results[1].meta.changes) return 'confirmation_queued';
+  const current = await db.prepare('SELECT status FROM newsletter_subscribers WHERE email=?1').bind(email).first<{ status: string }>();
+  return current?.status === 'confirmed' ? 'confirmed' : current?.status === 'pending' ? 'confirmation_pending'
+    : current?.status === 'unsubscribed' ? 'cooldown' : 'unavailable';
 }
 
 export async function confirmSubscriber(db: D1Database, token: string): Promise<boolean> {

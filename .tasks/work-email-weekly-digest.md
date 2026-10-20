@@ -32,6 +32,8 @@ Require work email at signup and implement a useful, reliable weekly incident di
 - [2026-10-20 15:21 UTC] Opened PR #6 from the deployed PR #5 branch. Refreshed existing Cloudflare OAuth through Wrangler. Production version/settings and secret names verified without reading secrets. Applied only additive migration 0008_newsletter.sql (7 commands, 1.92ms); follow-up reports no pending migrations. Newsletter Worker not deployed yet, so no subscribers contacted.
 - [2026-10-20 15:23 UTC] Additional self-review identified a crash/cursor replay path that could re-invite an unsubscribed legacy address after throttling elapsed. Legacy bootstrap now skips every existing subscription; explicit homepage re-signup remains available. Added opt-out replay regression. Full 207-test coverage suite, types, lint and production bundle pass (84% statements, 85.07% lines).
 
+- [2026-10-20 15:40 UTC] Addressed PR #6 feedback: subscription responses and browser messages now distinguish queued, pending, confirmed, cooldown and unavailable; atomic no-op results are rechecked. Full 208-test suite, strict types, lint, production bundle and headless Chrome checks pass (84% statements, 85.11% lines). Read-only preview of actual published content renders 379 additions and five cited highlights without sending. Redaction finding traced to obsolete tracked Wrangler 4.65 files: clean installed/locked 4.150 schema and CLI explicitly support the configured control. Production settings verification remains mandatory.
+
 ## Verification Checklist
 - [ ] Acceptance criteria met
 - [x] Tests pass with coverage
@@ -43,4 +45,3 @@ Require work email at signup and implement a useful, reliable weekly incident di
 
 ## Issues / Blockers
 (none)
-
