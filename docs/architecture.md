@@ -57,6 +57,8 @@ Verify archive, an existing detail URL, robots, sitemap, redirects, unauthorized
 
 ## References and scaling
 
+Rollout executed at the user's request on 2026-10-20 at 14:34 UTC: version `669b6f74-f01a-447c-9e85-3d8838af311a` serves 100%, both cron expressions and the 45-second setting are confirmed, and existing secret names are retained. Public/custom-domain smoke checks pass. Next expected collection/enrichment executions are 15:00/15:15 UTC; they were not yet observed when this record was written. See the task file for detailed evidence.
+
 - [Cloudflare connection limits](https://developers.cloudflare.com/workers/platform/limits/#simultaneous-open-connections)
 - [Cron triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
 - [Cache API and location-specific behavior](https://developers.cloudflare.com/workers/runtime-apis/cache/)

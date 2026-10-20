@@ -28,7 +28,7 @@ Investigate repeated production alerts and separate source collection/publicatio
 6. Promise.all could release the shared lease while another source worker still writes after a peer's database failure. Wait for all workers to settle; add regression.
 7. Enrichment attempts and cooldown needed truthful visibility. Persist separate enrichment state, retain deferred status while cooldown is active, and avoid updating the ingestion heartbeat.
 
-All identified implementation issues are addressed before committing. Production rollout remains a separate step; no reduction in live alerts or search rankings is claimed.
+All implementation issues were addressed before committing. At the user's later explicit request, code 95ab963 was deployed and smoke-verified on 2026-10-20 as version 669b6f74-f01a-447c-9e85-3d8838af311a. Automatic review completed without findings and Windows PR CI passed. No live alert-volume or ranking improvement is claimed before observation.
 
 ### Suggestions
 1. After rollout, observe a real collection/enrichment cycle and compare actionable alert counts over 48 hours.
@@ -37,7 +37,7 @@ All identified implementation issues are addressed before committing. Production
 4. Consider Cloudflare Queues only when measured inbox load exceeds the bounded processor.
 
 ### Verification evidence
-- Full suite before final error-path regression: 159 tests pass, 83.08% line coverage; strict types and lint pass. Final repeated results are recorded in the task file.
+- Final full suite: 160 tests pass, 83.08% line coverage; strict types and lint pass. Windows PR CI run 39439677399 passes clean install, types, lint, full coverage, and build.
 - Production dry-run build: 402.17 KiB / 89.88 KiB gzip, existing bindings only, separate cron/trace configuration accepted.
 - Built Worker under workerd: public routes, sitemap/robots, 301/404/401, source-cited schema, named-cache hit, authenticated no-store health pass.
 - Live read-only source contract checks: official KEV mirror collected/validated 1,748 entries after primary failure; CERT Vuls parsed 15 entries; CERT-EU parsed 10. No production data writes or operator notifications.
