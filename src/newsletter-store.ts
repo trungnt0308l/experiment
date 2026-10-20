@@ -29,10 +29,11 @@ async function queueMail(db: D1Database, id: string, subscriberId: number, kind:
     VALUES (?1,?2,?3,?4,?5,?6,?6)`).bind(id, subscriberId, editionId, kind, JSON.stringify(payload), now).run();
 }
 
-export async function requestConfirmation(db: D1Database, rawEmail: string, site: string): Promise<void> {
+export async function requestConfirmation(db: D1Database, rawEmail: string, site: string, options: { skipExisting?: boolean } = {}): Promise<void> {
   const email = rawEmail.trim().toLowerCase();
   if (workEmailError(email)) return;
   const old = await db.prepare('SELECT * FROM newsletter_subscribers WHERE email=?1').bind(email).first<Subscriber>();
+  if (old && options.skipExisting) return;
   if (old?.status === 'confirmed' || old?.status === 'suppressed') return;
   if (old?.last_confirmation_at && Date.now() - Date.parse(old.last_confirmation_at) < 3600000) return;
   const token = randomToken(), hash = await sha256Hex(token), now = new Date().toISOString();

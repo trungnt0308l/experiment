@@ -14,12 +14,13 @@ Replace collection-only signup with confirmed work-email subscriptions and a Mon
 - [x] API validation and admin authentication verified
 - [x] Labels, inline feedback, live regions and explicit keyboard-operable confirmation/unsubscribe forms
 - [x] Headless Chrome mobile viewport 390px has no horizontal overflow
-- [x] 206 tests pass, including real Cloudflare D1 concurrent signup and newsletter lease behavior
+- [x] 207 tests pass, including real Cloudflare D1 concurrent signup and newsletter lease behavior
 - [x] No unresolved TODO/FIXME introduced
 - [x] No dependencies added; clean lockfile install reported zero vulnerabilities
 - [x] Work-email restriction, consent requirement and first-edition behavior documented in PRD and runbook
 
 ### Issues Found
+0. Replaying the legacy import cursor after a crash could re-invite a previously unsubscribed address after the one-hour throttle expired. Legacy import now skips every existing subscriber record; a regression preserves opt-out during replay. Explicit homepage re-signup still requires fresh confirmation.
 1. An unsubscribed operator-suppressed subscriber could otherwise request a new invitation. Fixed by preserving suppressed status during unsubscribe and verified with a regression.
 2. Accepted messages unnecessarily retained confirmation links/content. Accepted updates now clear payloads while pending retries retain immutable requests.
 3. The late-confirmation test could share the edition's exact millisecond. The fixture now sets an explicit later timestamp; concurrency uses real D1 instead of an in-memory transaction approximation.
@@ -30,7 +31,7 @@ Replace collection-only signup with confirmed work-email subscriptions and a Mon
 2. Reassess the personal/disposable-domain policy as new providers appear. Custom domains plus confirmation cannot establish a person's employment.
 
 ### Verification evidence
-- Full test/coverage suite: 206 tests, 14 files, statements 83.94%, lines 85.07%, branches 73.86%.
-- Strict TypeScript and ESLint pass. Production Wrangler dry-run bundle passes (433.97 KiB; gzip 98.83 KiB).
+- Full test/coverage suite: 207 tests, 14 files, statements 84%, lines 85.07%, branches 73.99%.
+- Strict TypeScript and ESLint pass. Production Wrangler dry-run bundle passes (434.04 KiB; gzip 98.86 KiB).
 - Built Worker + real local D1 + headless Chrome: personal-domain feedback, work signup, explicit confirmation, mobile layout, authenticated read-only admin preview.
 - Production rollout and actual confirmation acceptance recorded separately in the task log after deployment; not inferred from mocks.

@@ -16,7 +16,7 @@ Footer unsubscribe links open a deliberate form. RFC 8058 one-click clients POST
 
 Migration `0008_newsletter.sql` adds independent subscriber, edition, outbox and state tables. The five-minute cron handles newsletter work only; collection remains hourly and enrichment runs at minute 15. Keep all three trigger expressions configured.
 
-The first run records initialization and invites eligible legacy signups in pages of 100, using a durable ID cursor. It skips historical editions at rollout. The first scheduled edition after the October 20 rollout is Monday October 26, 2026, 13:00 UTC.
+The first run records initialization and invites eligible legacy signups in pages of 100, using a durable ID cursor. Existing subscriber records are never re-enrolled by cursor replay; an opt-out requires a new explicit signup. It skips historical editions at rollout. The first scheduled edition after the October 20 rollout is Monday October 26, 2026, 13:00 UTC.
 
 Editions cover `[previous Monday 13:00 UTC, this Monday 13:00 UTC)` using Radar publication time. Each counts published advisories and selects up to five, prioritizing high severity then source disclosure date. Highlights include a short summary, original disclosure date, incident/source links, and an available response step. Copy distinguishes new Radar additions from older disclosures. No publications means no digest that week.
 

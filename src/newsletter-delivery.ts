@@ -21,7 +21,7 @@ async function bootstrapSubscribers(db: D1Database, site: string): Promise<void>
   const cursor = await newsletterState<number>(db, 'waitlist-cursor') ?? 0;
   const rows = await db.prepare('SELECT id,email FROM waitlist_signups WHERE id>?1 ORDER BY id LIMIT 100')
     .bind(cursor).all<{ id: number; email: string }>();
-  for (const row of rows.results) await requestConfirmation(db, row.email, site);
+  for (const row of rows.results) await requestConfirmation(db, row.email, site, { skipExisting: true });
   if (rows.results.length) await setNewsletterState(db, 'waitlist-cursor', rows.results.at(-1)!.id);
 }
 

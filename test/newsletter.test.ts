@@ -185,6 +185,19 @@ describe('weekly editions and copy', () => {
 });
 
 describe('Resend outbox delivery', () => {
+  test('legacy cursor replay cannot resubscribe an address that opted out', async () => {
+    const { db } = createTestDb();
+    await confirmation(db);
+    const token = await db.prepare('SELECT unsubscribe_token AS token FROM newsletter_subscribers').first<string>('token');
+    await unsubscribe(db, token!);
+    await db.prepare("UPDATE newsletter_subscribers SET last_confirmation_at='2026-02-01T00:00:00Z'").run();
+    await db.prepare("INSERT INTO waitlist_signups(email,company,role,interests,created_at) VALUES ('reader@company.example','','','',?1)").bind(new Date().toISOString()).run();
+    const fetchFn = vi.fn();
+    await runNewsletterJobs(env(db), fetchFn);
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(await db.prepare('SELECT status FROM newsletter_subscribers').first('status')).toBe('unsubscribed');
+    expect(await queued(db)).toHaveLength(1);
+  });
   test.each([401, 403, 422])('tracks permanent provider rejection HTTP %s without claiming acceptance', async status => {
     const { db } = createTestDb();
     await confirmation(db);

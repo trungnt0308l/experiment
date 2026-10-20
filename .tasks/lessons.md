@@ -153,3 +153,9 @@ pm run typecheck immediately before writing more features.
 - **Root cause**: Fixture timing and browser target assumptions were implicit. Review also found that unsubscribe could remove operator suppression.
 - **Fix applied**: Give the fixture an explicit later timestamp; use loopback, a fresh page target and /admin/ops. Preserve suppression and add a regression.
 - **Rule going forward**: Set temporal ordering explicitly in consent tests; choose actual browser page targets and known routes. Unsubscribe must never weaken provider/operator suppression.
+
+## [2026-10-20] work-email-weekly-digest: Legacy import must preserve opt-out
+- **What went wrong**: Self-review found that replaying an unfinished import page could request another confirmation for a previously unsubscribed address after the hourly throttle expired.
+- **Root cause**: Legacy migration reused the explicit user re-signup function without distinguishing existing subscriber consent.
+- **Fix applied**: Legacy import skips all existing subscriber records, and a cursor replay regression proves unsubscribed addresses remain excluded.
+- **Rule going forward**: Background imports must never reenroll existing contacts; only a new explicit signup may initiate reconfirmation after opt-out. Preserve original ledger bytes when appending on Windows.
