@@ -127,7 +127,16 @@ function cisaEvent(value: unknown): SourceEvent {
 async function snapshotPage(source: 'euvd' | 'cisa_kev' | 'rss', ctx: Context): Promise<SourcePage> {
   const url = source === 'cisa_kev' ? 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
     : source === 'euvd' ? 'https://euvdservices.enisa.europa.eu/api/lastvulnerabilities' : ctx.query;
-  const response = await sourceRequest(ctx.fetchFn, url, ctx.timeout);
+  const deadline = Date.now() + ctx.timeout;
+  let response;
+  const warnings: string[] = [];
+  try { response = await sourceRequest(ctx.fetchFn, url, ctx.timeout); }
+  catch (error) {
+    if (source !== 'cisa_kev' || error instanceof SourceBudgetError || Date.now() >= deadline) throw error;
+    response = await sourceRequest(ctx.fetchFn,
+      'https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json', deadline - Date.now());
+    warnings.push('CISA KEV collected from the official cisagov mirror while the primary feed is unavailable.');
+  }
   if (source === 'rss') {
     if (!/<(?:rss|feed)[\s>]/i.test(response.body)) throw new Error('Invalid RSS/Atom feed');
     return { events: parseRssOrAtom(response.body, url).map((event) => validEvent({ ...event, publishedAt: isoDate(event.publishedAt) })), warnings: [] };
@@ -135,7 +144,7 @@ async function snapshotPage(source: 'euvd' | 'cisa_kev' | 'rss', ctx: Context): 
   const body: unknown = JSON.parse(response.body);
   const rows = source === 'cisa_kev' ? jsonObject(body).vulnerabilities
     : Array.isArray(body) ? body : jsonObject(body).items ?? jsonObject(body).vulnerabilities;
-  return { events: jsonArray(rows).map(source === 'cisa_kev' ? cisaEvent : euvdEvent), warnings: [] };
+  return { events: jsonArray(rows).map(source === 'cisa_kev' ? cisaEvent : euvdEvent), warnings };
 }
 
 async function hnPage(ctx: Context): Promise<SourcePage> {

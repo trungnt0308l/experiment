@@ -194,6 +194,11 @@ Teams need a single low-cost service that detects relevant AI security incidents
 3. Web UI scraping is not used for production customer alerts unless explicit legal approval is documented.
 
 ### Ingestion Rules
+- Bound source concurrency, rotate scheduling, and reserve time for durable processing. Each RSS feed has independent retry/health state; successful siblings cannot hide a failure.
+- Run optional enrichment separately from scheduled collection with persistent per-draft retry eligibility. Enrichment failures remain diagnostic and do not send ingestion outage notifications.
+- Alert on sustained transient failures (three scans or three hours), immediate configuration/authentication/upstream quota failures, stale source success, stale heartbeat, and aged/quarantined work. Preserve each issue's reminder time independently.
+- Public pages may serve a successful cached copy for up to 24 hours during rendering/database outages. Normal freshness is one minute. Exclude private, credential-bearing, parameterized, and error responses.
+- Use consistent page-specific SEO titles/descriptions, self canonical pagination, source-cited article/breadcrumb data, and persisted modification dates. Do not fabricate sitemap changes for unchanged pages.
 - Retain normalized source payloads in a durable D1 inbox before advancing paginated scan checkpoints; retries must survive source disappearance, timestamp ties, and publication failures.
 - Deduplicate by stable source identifier, canonical CVE, and exact source URL. LLM decisions are not a prerequisite for ingestion or publication; optional enrichment has its own bounded retry path.
 - Scan NVD/GHSA published-date windows initially and modification-date windows subsequently, with overlap and persistent page progress. Respect HTTP rate-limit cooldowns and per-run resource budgets.
@@ -302,3 +307,4 @@ Teams need a single low-cost service that detects relevant AI security incidents
 - [2026-03-07] restore-full-incident-archive: Restored all published incidents to the public archive, sitemap, and default indexation path while keeping editorial review and correction guidance.
 - [2026-10-13] ingestion-reliability: Added durable collection/retry checkpoints, paginated modification scans, owned leases, source severity/date provenance, recovery controls, health/alerts, database-backed archives, and Windows Node 24 verification. Decoupled optional enrichment from publication so provider outages cannot suppress incidents.
 - [2026-10-14] ingestion-followup: Distinguish local collection-budget pauses from upstream failures. Local quotas retain checkpoint progress and warnings without increasing failure streaks or persisting outage cooldowns; recover legacy quota-only cooldowns automatically. Record source success only on successful source responses.
+- [2026-10-20] robust-architecture-seo: Separate enrichment scheduling; bound/rotate source workers; reserve processing time; add per-feed timeout backoff, actionable alerts, official KEV fallback, and bounded public cache recovery. Correct titles, descriptions, canonical duplicates, pagination schema, citations, breadcrumbs, modification dates, and sitemap signals. Retain D1 and published incident indexation.

@@ -1,5 +1,7 @@
 # AI Security Incident Radar
 
+Architecture and operations: [resilient ingestion and serving](docs/architecture.md). SEO changes and follow-up: [October 20 audit](docs/seo-audit-2026-10-20.md).
+
 Current production status:
 - Live domain: `https://aisecurityradar.com`
 - Worker fallback: `https://ai-security-incident-radar-production.tuantrung.workers.dev`

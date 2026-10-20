@@ -5,12 +5,14 @@ import { fetchSourcePage, sourceQueries, SOURCES, type ScanPosition } from './in
 import { acquireLease, finishItem, pendingCount, pendingItems, readState, releaseLease, retryItem, stageEvent, writeState, type InboxItem } from './ingestion-storage';
 import { isSourceBudgetMessage, NVD_QUOTA_MESSAGE, SOURCE_BUDGET_MESSAGE, SourceBudgetError, SourceHttpError } from './ingestion-network';
 import { enrichPendingDrafts } from './ingestion-enrichment';
+import { actionableSourceErrors, sourceIsStale } from './ingestion-policy';
 
 type Backfill = NonNullable<IngestionRunOptions['backfill']>;
-type SourceHealth = { status: string; lastAttemptAt: string; lastSuccessAt?: string; errors: string[];
-  warnings: string[]; cooldownUntil?: string; failureStreak?: number; incomplete: boolean };
+export type SourceHealth = { status: string; lastAttemptAt: string; lastSuccessAt?: string; errors: string[];
+  warnings: string[]; cooldownUntil?: string; failureStreak?: number; firstFailureAt?: string;
+  incomplete: boolean; queries?: Record<string, SourceHealth> };
 type Run = { env: EnvBindings & { DB: D1Database }; fetchFn: typeof fetch; options: IngestionRunOptions;
-  result: IngestionRunResult; deadline: number; writes: number; requests: number; startedAt: string; processing?: Promise<void>;
+  result: IngestionRunResult; deadline: number; collectionDeadline: number; writes: number; requests: number; startedAt: string; processing?: Promise<void>;
   pauses: Map<SourceEvent['source'], string>; successfulSources: Set<SourceEvent['source']> };
 const WINDOW_MS = 120 * 86400000;
 const OVERLAP_MS = 2 * 86400000;
@@ -74,12 +76,12 @@ async function scanQuery(run: Run, source: SourceEvent['source'], query: string,
   if (position.complete) return false;
   const caps = resolveRuntimeCaps(run.env, run.result.mode);
   const pages = run.result.mode === 'cron' ? 2 : 5;
-  for (let pageIndex = 0; pageIndex < pages && Date.now() < run.deadline; pageIndex += 1) {
+  for (let pageIndex = 0; pageIndex < pages && Date.now() < run.collectionDeadline; pageIndex += 1) {
     if (health.cooldownUntil || collectionPaused(run, source, health)) return true;
     const remaining = caps.ghsaMaxItemsPerRun - run.result.sourceStats.ghsa.fetched;
     if (source === 'ghsa' && remaining <= 0) return true;
     const page = await fetchSourcePage(source, { env: run.env, fetchFn: run.fetchFn, query, position,
-      timeout: Math.max(1, Math.min(caps.fetchTimeoutMs, run.deadline - Date.now())) });
+      timeout: Math.max(1, Math.min(caps.fetchTimeoutMs, run.collectionDeadline - Date.now())) });
     run.successfulSources.add(source);
     health.lastSuccessAt = new Date().toISOString();
     run.result.warnings.push(...page.warnings);
@@ -101,7 +103,7 @@ async function scanQuery(run: Run, source: SourceEvent['source'], query: string,
 
 function recordSourceFailure(run: Run, source: SourceEvent['source'], query: string, health: SourceHealth, error: unknown): void {
   health.incomplete = true;
-  const label = source === 'nvd' ? `NVD keyword "${query}"` : source;
+  const label = source === 'nvd' ? `NVD keyword "${query}"` : source === 'rss' ? `rss (${query})` : source;
   const message = `${label}: ${error instanceof Error ? error.message : 'source failed'}`;
   if (error instanceof SourceHttpError || error instanceof SourceBudgetError) {
     health.warnings.push(...error.warnings); run.result.warnings.push(...error.warnings);
@@ -113,17 +115,19 @@ function recordSourceFailure(run: Run, source: SourceEvent['source'], query: str
     return;
   }
   health.errors.push(message); run.result.errors.push(message); run.result.sourceStats[source].errors += 1;
-  if (!(error instanceof SourceHttpError)) return;
-  if (error.status !== 429 && error.status !== 403 && error.status < 500) return;
+  health.firstFailureAt ??= run.startedAt;
   if (!health.cooldownUntil) health.failureStreak = (health.failureStreak ?? 0) + 1;
+  if (error instanceof SourceHttpError && error.status !== 429 && error.status !== 403 && error.status < 500) return;
   const backoff = Math.min(6 * 3600000, 300000 * 2 ** Math.min((health.failureStreak ?? 1) - 1, 7));
-  const until = Date.now() + Math.max(error.retryAfterMs, backoff);
+  const until = Date.now() + Math.max(error instanceof SourceHttpError ? error.retryAfterMs : 0, backoff);
   health.cooldownUntil = new Date(Math.max(Date.parse(health.cooldownUntil ?? '') || 0, until)).toISOString();
 }
 
 async function saveSourceHealth(run: Run, source: SourceEvent['source'], health: SourceHealth): Promise<void> {
   health.status = health.errors.length || health.warnings.length ? 'degraded' : 'healthy';
-  if (!health.errors.length && run.successfulSources.has(source)) health.failureStreak = 0;
+  if (!health.errors.length && run.successfulSources.has(source)) {
+    health.failureStreak = 0; health.firstFailureAt = undefined;
+  }
   await writeState(run.env.DB, `health:${source}`, health);
 }
 
@@ -137,13 +141,19 @@ async function scanSource(run: Run, source: SourceEvent['source']): Promise<void
     return;
   }
   const health: SourceHealth = { status: 'healthy', lastAttemptAt: run.startedAt,
-    lastSuccessAt: old?.lastSuccessAt, errors: [], warnings: [], incomplete: false, failureStreak: old?.failureStreak ?? 0 };
+    lastSuccessAt: old?.lastSuccessAt, errors: [], warnings: [], incomplete: false,
+    failureStreak: old?.failureStreak ?? 0, firstFailureAt: old?.firstFailureAt };
   if (collectionPaused(run, source, health)) {
     health.incomplete = true;
     await saveSourceHealth(run, source, health);
     return;
   }
   const queries = [...sourceQueries(source, run.env)];
+  if (source === 'rss') {
+    await scanFeeds(run, queries, health, old);
+    await saveSourceHealth(run, source, health);
+    return;
+  }
   if (source === 'nvd') {
     const turnKey = run.options.backfill ? `backfill:turn:nvd:${run.options.backfill.from}:${run.options.backfill.to}` : 'scan:turn:nvd';
     const turn = await readState<number>(run.env.DB, turnKey) ?? 0;
@@ -158,6 +168,34 @@ async function scanSource(run: Run, source: SourceEvent['source']): Promise<void
   } };
   await Promise.all(Array.from({ length: source === 'nvd' ? 2 : 1 }, () => worker()));
   await saveSourceHealth(run, source, health);
+}
+
+async function scanFeeds(run: Run, queries: string[], health: SourceHealth, old: SourceHealth | null): Promise<void> {
+  health.queries = {};
+  for (const query of queries) {
+    const previous = old?.queries?.[query];
+    if (Date.now() >= run.collectionDeadline || previous?.cooldownUntil && Date.parse(previous.cooldownUntil) > Date.now()) {
+      if (previous) health.queries[query] = previous;
+      health.incomplete = true;
+      continue;
+    }
+    const feed: SourceHealth = { status: 'healthy', lastAttemptAt: run.startedAt, lastSuccessAt: previous?.lastSuccessAt,
+      errors: [], warnings: [], incomplete: false, failureStreak: previous?.failureStreak ?? 0, firstFailureAt: previous?.firstFailureAt };
+    try {
+      feed.incomplete = await scanQuery(run, 'rss', query, feed);
+      if (!feed.incomplete) { feed.failureStreak = 0; feed.firstFailureAt = undefined; }
+    } catch (error) { recordSourceFailure(run, 'rss', query, feed, error); }
+    feed.status = feed.errors.length ? 'degraded' : 'healthy';
+    health.queries[query] = feed;
+  }
+  const feeds = Object.values(health.queries);
+  health.errors = feeds.flatMap((feed) => feed.errors);
+  health.warnings = feeds.flatMap((feed) => feed.warnings);
+  health.incomplete ||= feeds.some((feed) => feed.incomplete);
+  health.failureStreak = Math.max(0, ...feeds.map((feed) => feed.failureStreak ?? 0));
+  health.firstFailureAt = feeds.map((feed) => feed.firstFailureAt).filter((at): at is string => Boolean(at)).sort()[0];
+  if (feeds.length === queries.length && feeds.every((feed) => feed.lastSuccessAt))
+    health.lastSuccessAt = feeds.map((feed) => feed.lastSuccessAt!).sort()[0];
 }
 
 async function processItem(run: Run, item: InboxItem): Promise<void> {
@@ -238,16 +276,27 @@ async function resumeBackfill(run: Run): Promise<void> {
 
 async function executeRun(run: Run): Promise<void> {
   await processPending(run);
-  const sources = run.options.backfill?.sources ?? SOURCES;
-  await Promise.all(sources.filter((source) => source !== 'hn' || run.env.ENABLE_HN_SOURCE !== 'false')
-    .map(async (source) => {
+  const sources = [...(run.options.backfill?.sources ?? SOURCES)]
+    .filter((source) => source !== 'hn' || run.env.ENABLE_HN_SOURCE !== 'false');
+  const turn = await readState<number>(run.env.DB, 'scan:turn:sources') ?? 0;
+  sources.push(...sources.splice(0, turn % sources.length));
+  await writeState(run.env.DB, 'scan:turn:sources', turn + 1);
+  const worker = async () => {
+    while (sources.length && Date.now() < run.collectionDeadline) {
+      const source = sources.shift()!;
       await scanSource(run, source);
       run.processing = (run.processing ?? Promise.resolve()).then(() => processPending(run));
       await run.processing;
-    }));
+    }
+  };
+  // At most three sources (four outbound calls with NVD's two query workers).
+  // Leave connection and runtime headroom for D1 persistence and publication.
+  const settled = await Promise.allSettled(Array.from({ length: Math.min(3, sources.length) }, () => worker()));
+  const failure = settled.find((result) => result.status === 'rejected');
+  if (failure?.status === 'rejected') throw failure.reason;
   await processPending(run);
   await resumeBackfill(run);
-  const enriched = await enrichPendingDrafts(run.env, run.fetchFn, run.deadline,
+  const enriched = await enrichPendingDrafts(run.env, run.fetchFn, run.deadline, run.result.mode === 'cron' ? 0 :
     Math.min(resolveRuntimeCaps(run.env, run.result.mode).llmEnrichMaxCalls,
       Math.max(0, resolveRuntimeCaps(run.env, run.result.mode).maxDbWrites - run.writes)));
   run.result.llmEnrichCalls += enriched.calls;
@@ -277,7 +326,9 @@ export async function runDurableIngestion(env: EnvBindings, fetchFn: typeof fetc
   const startedAt = new Date().toISOString();
   const caps = resolveRuntimeCaps(env, result.mode);
   const run: Run = { env: { ...env, DB: env.DB }, fetchFn, options, result,
-    deadline: Date.now() + caps.maxRuntimeMs, writes: 0, requests: 0, startedAt,
+    deadline: Date.now() + caps.maxRuntimeMs,
+    collectionDeadline: Date.now() + caps.maxRuntimeMs - Math.min(4000, caps.maxRuntimeMs * 0.2),
+    writes: 0, requests: 0, startedAt,
     pauses: new Map(), successfulSources: new Set() };
   let acquired = false;
   try {
@@ -296,26 +347,47 @@ export async function runDurableIngestion(env: EnvBindings, fetchFn: typeof fetc
   return result;
 }
 
+async function operationalHealth(db: D1Database, latest: Record<string, unknown> | null) {
+  const pending = await db.prepare("SELECT min(first_seen_at) AS oldest,sum(status='retry') AS retrying FROM ingestion_items WHERE status IN ('pending','retry')")
+    .first<{ oldest: string | null; retrying: number | null }>();
+  const operationalErrors: string[] = [];
+  if (pending?.oldest && Date.now() - Date.parse(pending.oldest) > 6 * 3600000) operationalErrors.push('Ingestion backlog has waited more than six hours');
+  const quarantine = await db.prepare("SELECT count(*) AS count FROM ingestion_items WHERE reason='oversized_event'").first<{ count: number }>();
+  if (quarantine?.count) operationalErrors.push(`${quarantine.count} oversized ingestion records require review`);
+  if (!latest?.finishedAt || !Number.isFinite(Date.parse(String(latest.finishedAt)))
+    || Date.now() - Date.parse(String(latest.finishedAt)) > 2 * 3600000) operationalErrors.push('Hourly cron heartbeat missing or stale');
+  return { pending, operationalErrors };
+}
+
 export async function ingestionHealth(env: EnvBindings) {
-  if (!env.DB) return { status: 'failed', errors: ['Database unavailable'], sources: [], backlog: 0, history: [] };
+  if (!env.DB) return { status: 'failed', errors: ['Database unavailable'], alertIssues: ['Database unavailable'], warnings: [], sources: [], backlog: 0, history: [] };
   const latest = await readState<Record<string, unknown>>(env.DB, 'run:latest:cron');
   const sources = await Promise.all(SOURCES.filter((source) => source !== 'hn' || env.ENABLE_HN_SOURCE !== 'false')
     .map(async (source) => ({ source, ...await readState<SourceHealth>(env.DB!, `health:${source}`) })));
-  const errors = sources.flatMap((source) => [...source.errors ?? [], ...source.warnings ?? []]);
-  const pending = await env.DB.prepare("SELECT min(first_seen_at) AS oldest,sum(status='retry') AS retrying FROM ingestion_items WHERE status IN ('pending','retry')")
-    .first<{ oldest: string | null; retrying: number | null }>();
-  if (pending?.oldest && Date.now() - Date.parse(pending.oldest) > 6 * 3600000) errors.push('Ingestion backlog has waited more than six hours');
-  const quarantine = await env.DB.prepare("SELECT count(*) AS count FROM ingestion_items WHERE reason='oversized_event'").first<{ count: number }>();
-  if (quarantine?.count) errors.push(`${quarantine.count} oversized ingestion records require review`);
-  if (!latest?.finishedAt || Date.now() - Date.parse(String(latest.finishedAt)) > 2 * 3600000) errors.push('Hourly cron heartbeat missing or stale');
+  const errors = sources.flatMap((source) => source.errors ?? []);
+  const warnings = sources.flatMap((source) => source.warnings ?? []);
+  const alertIssues = sources.flatMap((source) => actionableSourceErrors(source));
+  for (const source of sources) if (sourceIsStale(source)) {
+    const message = `${source.source}: no successful collection for six hours`;
+    errors.push(message); alertIssues.push(message);
+  }
+  const { pending, operationalErrors } = await operationalHealth(env.DB, latest);
   const history = await env.DB.prepare('SELECT run_id,mode,status,started_at,finished_at FROM ingestion_runs ORDER BY finished_at DESC LIMIT 20').all();
   const orphaned = await env.DB.prepare("SELECT e.id,e.source,e.title,e.published_at FROM ingested_events e LEFT JOIN draft_posts d ON d.event_id=e.id WHERE d.id IS NULL AND e.severity='high' ORDER BY e.created_at LIMIT 100").all();
   const latestAny = await readState<IngestionRunResult>(env.DB, 'run:latest:any');
-  if (latestAny) errors.push(...latestAny.errors ?? [], ...latestAny.warnings ?? []);
-  return { status: errors.length ? 'degraded' : 'healthy', errors: [...new Set(errors)], latest, sources,
+  if (latestAny) {
+    const sourceErrors = new Set(sources.flatMap((source) => source.errors ?? []));
+    operationalErrors.push(...(latestAny.errors ?? []).filter((error) => !sourceErrors.has(error)));
+    warnings.push(...latestAny.warnings ?? []);
+    alertIssues.push(...actionableSourceErrors({ warnings: latestAny.warnings }));
+  }
+  errors.push(...operationalErrors); alertIssues.push(...operationalErrors);
+  return { status: errors.length ? 'degraded' : 'healthy', errors: [...new Set(errors)],
+    warnings: [...new Set(warnings)], alertIssues: [...new Set(alertIssues)], latest, sources,
     backlog: await pendingCount(env.DB), oldestPendingAt: pending?.oldest, retrying: pending?.retrying ?? 0,
     alertsEnabled: env.INGESTION_ALERTS_ENABLED === 'true',
     alertsConfigured: Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID || env.RESEND_API_KEY && env.NOTIFY_EMAIL_TO),
+    enrichment: await readState(env.DB, 'enrichment:latest'),
     backfill: await readState(env.DB, 'backfill:active'), orphanedHighSeverity: orphaned.results, history: history.results };
 }
 
