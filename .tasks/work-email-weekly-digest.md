@@ -1,7 +1,7 @@
 # Task: work-email-weekly-digest
 
 ## Meta
-- **Status**: VERIFICATION
+- **Status**: DONE
 - **Branch**: feat/work-email-weekly-digest
 - **PR**: https://github.com/trungnt0308l/experiment/pull/6
 - **Created**: 2026-10-20
@@ -18,7 +18,7 @@ Require work email at signup and implement a useful, reliable weekly incident di
 - [x] Add behavioral tests covering validation, subscriptions, digest windows/content, retries, and unsubscribe.
 - [x] Run full tests with coverage, lint, type checking, build, and manual/runtime verification.
 - [x] Update PRD, operational docs, lessons, task evidence, and senior self-review.
-- [ ] Commit, push, create PR, and complete authorized rollout after verification.
+- [x] Commit, push, create PR, and complete authorized rollout after verification.
 
 ## Progress Log
 - [2026-10-20] Started task. Read repository lessons and prior rollout task. Current original checkout remains fix/ingestion-reliability with pre-existing dependency changes; latest deployed app is PR #5 in .worktrees/robust-architecture-seo. Preserve existing changes and base new work on deployed fixes.
@@ -34,8 +34,13 @@ Require work email at signup and implement a useful, reliable weekly incident di
 
 - [2026-10-20 15:40 UTC] Addressed PR #6 feedback: subscription responses and browser messages now distinguish queued, pending, confirmed, cooldown and unavailable; atomic no-op results are rechecked. Full 208-test suite, strict types, lint, production bundle and headless Chrome checks pass (84% statements, 85.11% lines). Read-only preview of actual published content renders 379 additions and five cited highlights without sending. Redaction finding traced to obsolete tracked Wrangler 4.65 files: clean installed/locked 4.150 schema and CLI explicitly support the configured control. Production settings verification remains mandatory.
 
+- [2026-10-20 15:51:55 UTC] Deployed verified code 005520540c6a6e228031c46b82106e46711ef2ba to 100% as version 5c072557-e24f-4688-964c-1d2508177af9, deployment 4a00f58b-2ecf-4d98-a435-1f82751f6dbc. Preserved all seven secret names and dashboard variables. All three cron expressions, NEWSLETTER_ENABLED=true, 45-second ingestion setting and actual query-string redaction=true confirmed through Cloudflare API.
+- [2026-10-20 16:06 UTC] Live smoke checks passed homepage, archive, robots, sitemap, privacy, methodology, protected newsletter health/preview, private invalid confirmation handling and Gmail/Hotmail rejection (400). Both Windows CI runs for deployed code passed: 39452122878 and 39452111677. Both review threads resolved after implementation/evidence.
+- [2026-10-20 16:07 UTC] Observed actual newsletter cron initialization at 16:00:49 UTC and another completed pass at 16:05:47 UTC. Resend accepted all six existing custom-domain confirmation invitations between 16:00:50 and 16:01:03 UTC, each with a provider ID; all accepted payloads cleared. Six subscribers remain pending, no digest/edition created, no failures. All 31 legacy signups retained and 25 personal-domain rows excluded. First eligible digest: Monday October 26 at 13:00 UTC / 20:00 Bangkok. These are provider acceptances, not verified inbox deliveries.
+- [2026-10-20 16:07 UTC] Production hourly ingestion completed healthy at 16:00:50 UTC, independently from newsletter execution; optional enrichment retains its separate deferred state. Saved sanitized rollout/runtime evidence in docs/evidence/newsletter-2026-10-20.json and finalized review/runbook. No remaining implementation or rollout blockers.
+
 ## Verification Checklist
-- [ ] Acceptance criteria met
+- [x] Acceptance criteria met
 - [x] Tests pass with coverage
 - [x] Lint/type errors absent
 - [x] Build passes

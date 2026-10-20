@@ -48,6 +48,9 @@ Always run the lockfile's clean `npm ci` toolchain. The repository contains obso
 
 To pause sending, deploy with `NEWSLETTER_ENABLED=false`. To restore the preceding application version `669b6f74-f01a-447c-9e85-3d8838af311a`, also restore only hourly and minute-15 triggers: older code interprets the five-minute expression as ingestion. Retain additive tables, consent and delivery history.
 
+
+Rollout completed October 20 at 15:51:55 UTC: version `5c072557-e24f-4688-964c-1d2508177af9` serves 100%. Returned production settings confirm query-string redaction, newsletter enablement and all three triggers. At 16:07 UTC, six confirmation invitations have Resend acceptance IDs and cleared message bodies; all six subscriptions remain pending, with zero editions/digests sent. All 31 legacy signups are retained and the 25 personal-domain addresses are excluded. Both Windows CI runs and live smoke checks passed. See [sanitized evidence](evidence/newsletter-2026-10-20.json).
+
 ## Provider references
 
 - [Resend idempotency and 24-hour retention](https://resend.com/docs/dashboard/emails/idempotency-keys)

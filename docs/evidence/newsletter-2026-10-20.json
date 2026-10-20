@@ -1,0 +1,138 @@
+{
+  "verifiedAt": "2026-10-20T16:07:54.170Z",
+  "codeCommit": "005520540c6a6e228031c46b82106e46711ef2ba",
+  "pullRequest": "https://github.com/trungnt0308l/experiment/pull/6",
+  "deploymentId": "4a00f58b-2ecf-4d98-a435-1f82751f6dbc",
+  "versionId": "5c072557-e24f-4688-964c-1d2508177af9",
+  "trafficPercent": 100,
+  "deployedAt": "2026-10-20T15:51:55.673098Z",
+  "previousVersionId": "669b6f74-f01a-447c-9e85-3d8838af311a",
+  "migration": "0008_newsletter.sql",
+  "cronExpressions": [
+    "0 * * * *",
+    "15 * * * *",
+    "*/5 * * * *"
+  ],
+  "queryStringRedaction": true,
+  "newsletterEnabled": "true",
+  "secretNamesPreserved": [
+    "ADMIN_API_TOKEN",
+    "GITHUB_API_TOKEN",
+    "NOTIFY_EMAIL_TO",
+    "OPENAI_API_KEY",
+    "RESEND_API_KEY",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID"
+  ],
+  "legacySignupsRetained": 31,
+  "legacyPersonalSignupsExcluded": 25,
+  "subscribers": [
+    {
+      "status": "pending",
+      "count": 6
+    }
+  ],
+  "delivery": [
+    {
+      "kind": "confirmation",
+      "status": "accepted",
+      "count": 6,
+      "provider_ids": 6,
+      "cleared_payloads": 6,
+      "first_accepted": "2026-10-20T16:00:50.952Z",
+      "last_accepted": "2026-10-20T16:01:03.120Z"
+    }
+  ],
+  "editionsCreated": 0,
+  "firstEligibleEdition": "2026-10-26T13:00:00.000Z",
+  "providerAcceptanceIsInboxDelivery": false,
+  "providerBounceWebhookConfigured": false,
+  "browserVerification": {
+    "at": "2026-10-20T15:40:22.443Z",
+    "checks": [
+      "Browser rejects Gmail on blur with accessible inline feedback",
+      "Browser work-email submission creates pending subscription and confirmation feedback",
+      "Built Worker confirmation GET is read-only and POST confirms with real D1",
+      "Confirmed signup reports already subscribed without claiming or queueing a new email",
+      "390px mobile viewport has no horizontal overflow",
+      "Authenticated admin preview opens safely without creating editions or sending email",
+      "Admin newsletter controls render without browser exceptions"
+    ],
+    "errors": []
+  },
+  "liveVerification": {
+    "at": "2026-10-20T16:06:40.138Z",
+    "checks": [
+      {
+        "path": "/",
+        "status": 200
+      },
+      {
+        "path": "/incidents",
+        "status": 200
+      },
+      {
+        "path": "/robots.txt",
+        "status": 200
+      },
+      {
+        "path": "/sitemap.xml",
+        "status": 200
+      },
+      {
+        "path": "/privacy",
+        "status": 200
+      },
+      {
+        "path": "/methodology",
+        "status": 200
+      },
+      {
+        "path": "/api/admin/newsletter/health",
+        "status": 401
+      },
+      {
+        "path": "/api/admin/newsletter/preview",
+        "status": 401
+      },
+      {
+        "path": "/newsletter/confirm (invalid token)",
+        "status": 410,
+        "private": true
+      },
+      {
+        "action": "Reject gmail.com",
+        "status": 400
+      },
+      {
+        "action": "Reject hotmail.com",
+        "status": 400
+      }
+    ]
+  },
+  "validation": {
+    "tests": 208,
+    "testFiles": 14,
+    "statementsCoveragePercent": 84,
+    "linesCoveragePercent": 85.11,
+    "types": "pass",
+    "lint": "pass",
+    "productionBuild": "pass",
+    "windowsCI": [
+      "https://github.com/trungnt0308l/experiment/actions/runs/39452122878",
+      "https://github.com/trungnt0308l/experiment/actions/runs/39452111677"
+    ]
+  },
+  "ingestion": [
+    {
+      "key": "enrichment:latest",
+      "status": "deferred",
+      "updatedAt": "2026-10-20T15:15:46.261Z"
+    },
+    {
+      "key": "run:latest:cron",
+      "status": "healthy",
+      "updatedAt": "2026-10-20T16:00:50.721Z"
+    }
+  ]
+}
