@@ -115,6 +115,7 @@ type PublishedIncidentRow = {
   enriched_summary: string | null;
   enriched_impact: string | null;
   enriched_remedy_json: string | null;
+  enriched_at: string | null;
 };
 
 const INCIDENT_SUMMARY_MAX_CHARS = 760;
@@ -354,6 +355,7 @@ function toIncidentEntry(row: PublishedIncidentRow): IncidentEntry {
     incidentDate,
     publishedDate,
     publicationDateIso: row.published_at ?? row.created_at,
+    modifiedDateIso: row.enriched_at ?? row.published_at ?? row.created_at,
     summary,
     impact,
     remedy,
@@ -407,7 +409,8 @@ async function fetchPublishedDbIncidents(db: D1Database | undefined,
          e.published_at AS event_published_at,
          d.enriched_summary,
          d.enriched_impact,
-         d.enriched_remedy_json
+         d.enriched_remedy_json,
+         d.enriched_at
        FROM draft_posts d
        JOIN ingested_events e ON e.id = d.event_id
        WHERE d.status = 'published' ${options.slug ? 'AND d.slug = ?3' : ''}
@@ -427,14 +430,14 @@ async function listIncidents(db: D1Database | undefined, options: { limit?: numb
 }
 
 function parsePageNumber(raw: string | undefined): number | null {
-  if (!raw) {
+  if (raw === undefined) {
     return 1;
   }
   if (!/^[1-9]\d*$/.test(raw)) {
     return null;
   }
   const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > Math.floor(Number.MAX_SAFE_INTEGER / INCIDENTS_PER_PAGE)) {
     return null;
   }
   return parsed;
@@ -931,10 +934,21 @@ export function createApp() {
     c.res.headers.set('X-Frame-Options', 'DENY');
     c.res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
     c.res.headers.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    if (c.req.path.startsWith('/admin') || c.req.path.startsWith('/api/') || c.res.status >= 400) {
+      c.res.headers.set('X-Robots-Tag', 'noindex, nofollow');
+      c.res.headers.set('Cache-Control', 'no-store');
+    }
     c.res.headers.set(
       'Content-Security-Policy',
       "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://www.google-analytics.com; connect-src 'self' https://www.google-analytics.com https://region1.google-analytics.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
     );
+  });
+
+  app.use('*', async (c, next) => {
+    const path = c.req.path;
+    if (c.req.method === 'GET' && /^(?:\/incidents(?:\/[^/]+)*|\/methodology|\/privacy|\/terms|\/security)\/+$/u.test(path))
+      return c.redirect(path.replace(/\/+$/, '') + new URL(c.req.url).search, 301);
+    await next();
   });
 
   app.get('/health', (c) => c.json({ ok: true }));
@@ -973,12 +987,15 @@ export function createApp() {
 
   app.get('/incidents', async (c) => {
     const queryPage = c.req.query('page');
-    if (queryPage && queryPage !== '1') {
+    if (queryPage !== undefined) {
       const parsedPage = parsePageNumber(queryPage);
       if (!parsedPage) {
         return c.text('Invalid page number', 404);
       }
-      return c.redirect(incidentsPagePath(parsedPage), 301);
+      const params = new URL(c.req.url).searchParams;
+      params.delete('page');
+      const remaining = params.toString();
+      return c.redirect(incidentsPagePath(parsedPage) + (remaining ? `?${remaining}` : ''), 301);
     }
     return renderIncidentsListing(c, 1);
   });
@@ -1029,40 +1046,39 @@ export function createApp() {
 
   app.get('/sitemap.xml', async (c) => {
     const siteUrl = getSiteUrl(c);
-    const metadata = c.env.DB ? await c.env.DB.prepare(`SELECT d.slug,d.published_at,d.created_at
+    const metadata = c.env.DB ? await c.env.DB.prepare(`SELECT d.slug,d.published_at,d.created_at,d.enriched_at
       FROM draft_posts d JOIN ingested_events e ON e.id=d.event_id WHERE d.status='published'
       ORDER BY COALESCE(d.published_at,d.created_at) DESC LIMIT 45000`)
-      .all<{ slug: string | null; published_at: string | null; created_at: string }>() : { results: [] };
+      .all<{ slug: string | null; published_at: string | null; created_at: string; enriched_at: string | null }>() : { results: [] };
     const incidents = metadata.results;
-    const nowIso = new Date().toISOString();
-    const newestIncidentDate = incidents[0]?.published_at ?? incidents[0]?.created_at;
-    const parsedNewestIncidentDate = newestIncidentDate ? Date.parse(newestIncidentDate) : Number.NaN;
-    const incidentsLastmod = Number.isNaN(parsedNewestIncidentDate) ? nowIso : new Date(parsedNewestIncidentDate).toISOString();
+    const contentDates = incidents.flatMap((incident) => [incident.published_at, incident.created_at, incident.enriched_at])
+      .map((date) => Date.parse(date ?? '')).filter(Number.isFinite);
+    const incidentsLastmod = contentDates.length ? new Date(Math.max(...contentDates)).toISOString() : undefined;
     const incidentListPages = Math.max(1, Math.ceil(incidents.length / INCIDENTS_PER_PAGE));
-    const staticUrls: Array<{ path: string; lastmod: string }> = [
-      { path: '/', lastmod: nowIso },
+    const staticUrls: Array<{ path: string; lastmod?: string }> = [
+      { path: '/', lastmod: incidentsLastmod },
       { path: '/incidents', lastmod: incidentsLastmod },
-      { path: '/methodology', lastmod: nowIso },
-      { path: '/privacy', lastmod: nowIso },
-      { path: '/terms', lastmod: nowIso },
-      { path: '/security', lastmod: nowIso },
+      { path: '/methodology' },
+      { path: '/privacy' },
+      { path: '/terms' },
+      { path: '/security' },
     ];
     const incidentsPaginationUrls = Array.from({ length: Math.max(0, incidentListPages - 1) }, (_, index) => ({
       path: `/incidents/page/${index + 2}`,
       lastmod: incidentsLastmod,
     }));
-    const incidentUrls = incidents.map((incident) => {
-      const parsedSort = Date.parse(incident.published_at ?? incident.created_at);
-      const incidentLastmod = Number.isNaN(parsedSort) ? nowIso : new Date(parsedSort).toISOString();
-      return { path: `/incidents/${incident.slug}`, lastmod: incidentLastmod };
+    const incidentUrls = incidents.filter((incident) => incident.slug).map((incident) => {
+      const dates = [incident.published_at, incident.created_at, incident.enriched_at].map((date) => Date.parse(date ?? '')).filter(Number.isFinite);
+      return { path: `/incidents/${encodeURIComponent(incident.slug!)}`,
+        lastmod: dates.length ? new Date(Math.max(...dates)).toISOString() : undefined };
     });
 
     const allUrls = [...staticUrls, ...incidentsPaginationUrls, ...incidentUrls];
     const entries = allUrls
       .map(
         (item) => `  <url>
-    <loc>${siteUrl}${item.path}</loc>
-    <lastmod>${item.lastmod}</lastmod>
+    <loc>${escapeHtml(`${siteUrl}${item.path}`)}</loc>${item.lastmod ? `
+    <lastmod>${item.lastmod}</lastmod>` : ''}
   </url>`
       )
       .join('\n');

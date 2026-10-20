@@ -3,14 +3,10 @@ import { ingestionHealth } from './ingestion-runtime';
 import { readState, writeState } from './ingestion-storage';
 import { isSourceBudgetMessage, sourceRequest } from './ingestion-network';
 import { sha256Hex } from './ingestion';
+import { alertIdentity } from './ingestion-policy';
 
 const ALERT_INTERVAL_MS = 6 * 3600000;
 type AlertState = { fingerprint: string; at: string; issues?: Record<string, string> };
-
-function issueIdentity(issue: string): string {
-  return issue.replace(/^NVD keyword "[^"]+":/, 'nvd:')
-    .replace(/^\d+ oversized ingestion records/, 'oversized ingestion records');
-}
 
 function dueIssues(previous: AlertState | null, identities: string[], fingerprint: string): boolean {
   if (!previous) return true;
@@ -22,11 +18,11 @@ function dueIssues(previous: AlertState | null, identities: string[], fingerprin
 export async function sendIngestionAlerts(env: EnvBindings, fetchFn: typeof fetch = fetch): Promise<void> {
   if (env.INGESTION_ALERTS_ENABLED !== 'true' || !env.DB) return;
   const health = await ingestionHealth(env);
-  const issues = health.errors.filter((error) => !isSourceBudgetMessage(error) && !/cooling down until/.test(error));
+  const issues = health.alertIssues.filter((error) => !isSourceBudgetMessage(error) && !/cooling down until/.test(error));
   if (!issues.length) return;
   const text = ['AI Security Radar: ingestion needs attention', ...issues,
     `Pending records: ${health.backlog}`, 'Review source status at https://aisecurityradar.com/admin/ops'].join('\n').slice(0, 3500);
-  const identities = [...new Set(issues.map(issueIdentity))].sort();
+  const identities = [...new Set(issues.map(alertIdentity))].sort();
   const fingerprint = await sha256Hex(identities.join('\n'));
   const deliveries: Array<{ channel: string; url: string; init: RequestInit }> = [];
   if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) deliveries.push({ channel: 'telegram',
@@ -47,9 +43,11 @@ export async function sendIngestionAlerts(env: EnvBindings, fetchFn: typeof fetc
     try {
       await sourceRequest(fetchFn, delivery.url, 5000, delivery.init);
       const at = new Date().toISOString();
+      // Retain each issue's own delivery time; a new issue must not extend another's suppression.
       const recent = Object.entries(previous?.issues ?? {}).filter(([, time]) => Date.now() - Date.parse(time) < ALERT_INTERVAL_MS);
       await writeState(env.DB, key, { fingerprint, at, issues: { ...Object.fromEntries(recent),
-        ...Object.fromEntries(identities.map((identity) => [identity, at])) } });
+        ...Object.fromEntries(identities.filter((identity) => !previous?.issues?.[identity]
+          || Date.now() - Date.parse(previous.issues[identity]) >= ALERT_INTERVAL_MS).map((identity) => [identity, at])) } });
     } catch { console.error(JSON.stringify({ event: 'ingestion_alert_failed', channel: delivery.channel })); }
   }
 }

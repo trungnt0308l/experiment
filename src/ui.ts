@@ -13,6 +13,7 @@ export type IncidentEntry = {
   incidentDate: string;
   publishedDate: string;
   publicationDateIso?: string;
+  modifiedDateIso?: string;
   summary: string;
   impact: string;
   remedy: string[];
@@ -441,6 +442,15 @@ function escapeAttr(value: string): string {
     .replaceAll('>', '&gt;');
 }
 
+export function incidentSearchTitle(value: string): string {
+  const title = normalizeWhitespace(stripHtmlTags(value)).replace(/^AI security incident:\s*/i, '');
+  const identifier = title.match(/\b(?:CVE-\d{4}-\d+|GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})\b/i)?.[0];
+  if (title.length <= 65) return title;
+  const suffix = identifier ? ` (${identifier})` : '';
+  const label = identifier ? title.replace(identifier, '').replace(/\(\s*\)/g, '').trim() : title;
+  return `${label.slice(0, 64 - suffix.length).replace(/\s+\S*$/, '').replace(/[\s:;,(-]+$/, '')}…${suffix}`;
+}
+
 function renderSeoMeta(input: SeoMeta): string {
   const url = absoluteUrl(input.siteUrl, input.canonicalPath);
   const robots = input.noindex ? 'noindex, nofollow' : 'index, follow';
@@ -450,6 +460,7 @@ function renderSeoMeta(input: SeoMeta): string {
   const canonical = escapeAttr(url);
 
   return `
+  <title>${title}</title>
   <meta name="description" content="${description}" />
   <meta name="robots" content="${robots}" />
   <link rel="canonical" href="${canonical}" />
@@ -458,7 +469,7 @@ function renderSeoMeta(input: SeoMeta): string {
   <meta property="og:title" content="${title}" />
   <meta property="og:description" content="${description}" />
   <meta property="og:url" content="${canonical}" />
-  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:card" content="summary" />
   <meta name="twitter:title" content="${title}" />
   <meta name="twitter:description" content="${description}" />
   <link rel="sitemap" type="application/xml" href="${escapeAttr(absoluteUrl(input.siteUrl, '/sitemap.xml'))}" />`;
@@ -522,9 +533,9 @@ export function renderLandingPage(
   </script>`
     : '';
   const seoSnippet = renderSeoMeta({
-    title: `${appName} | AI Security Incident Monitoring for Security Teams`,
+    title: 'AI Security Incident Monitoring | AI Security Radar',
     description:
-      'AI Security Radar monitors AI-specific advisories, prompt-injection incidents, model supply-chain risks, and assistant security issues, then delivers source-cited remediation guidance for security teams.',
+      'Track AI vulnerabilities, prompt injection, and model supply-chain incidents. Review source-cited impact summaries and response steps for your security team.',
     canonicalPath: '/',
     siteUrl,
     type: 'website',
@@ -604,7 +615,6 @@ export function renderLandingPage(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${escapeHtml(`${appName} | AI Security Incident Monitoring for Security Teams`)}</title>
   ${seoSnippet}
   ${structuredData}
   ${gaSnippet}
@@ -1113,8 +1123,7 @@ export function renderIncidentsPage(incidents: IncidentEntry[], meta: IncidentsP
       meta.currentPage > 1
         ? `Recent AI Security Incidents - Page ${meta.currentPage} | AI Security Radar`
         : 'Recent AI Security Incidents | AI Security Radar',
-    description:
-      'Chronological AI security incidents with AI-specific context, source citations, impact summaries, and remediation guidance for security teams.',
+    description: `Browse AI security incidents with source citations, impact, and response steps. Page ${meta.currentPage} of ${meta.totalPages}, covering ${meta.totalIncidents} published advisories.`,
     canonicalPath,
     siteUrl: meta.siteUrl,
     type: 'website',
@@ -1131,7 +1140,7 @@ export function renderIncidentsPage(incidents: IncidentEntry[], meta: IncidentsP
       itemListOrder: 'https://schema.org/ItemListOrderDescending',
       itemListElement: incidents.map((item, index) => ({
         '@type': 'ListItem',
-        position: index + 1,
+        position: (meta.currentPage - 1) * 10 + index + 1,
         name: item.title,
         url: absoluteUrl(meta.siteUrl, `/incidents/${encodeURIComponent(item.slug)}`),
       })),
@@ -1160,7 +1169,6 @@ export function renderIncidentsPage(incidents: IncidentEntry[], meta: IncidentsP
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${meta.currentPage > 1 ? `Recent AI Security Incidents - Page ${meta.currentPage}` : 'Recent AI Security Incidents'}</title>
   ${seoSnippet}
   ${paginationLinkTags}
   ${listJsonLd}
@@ -1225,7 +1233,7 @@ export function renderIncidentsPage(incidents: IncidentEntry[], meta: IncidentsP
   <main class="wrap">
     ${renderSiteHeader()}
     <a class="back" href="/">Back to homepage</a>
-    <h1>Recent AI Security Incidents</h1>
+    <h1>Recent AI Security Incidents${meta.currentPage > 1 ? ` — Page ${meta.currentPage}` : ''}</h1>
     <p>This archive includes all published incident pages. Page ${meta.currentPage} of ${meta.totalPages}.</p>
     <div style="border:1px solid #ddd6c8;background:#fffdf9;padding:16px;margin-bottom:12px;">
       <p style="margin:0 0 8px;">Each page is intended to help a security team answer three questions quickly: why the issue is AI-relevant, what part of the workflow may be exposed, and what actions should happen first.</p>
@@ -1286,16 +1294,16 @@ export function renderIncidentDetailPage(
     : 'This incident is part of the public archive. AI-specific signals are limited in the current source material, so source citations should be reviewed closely during triage.';
   const seoDescription = trimToSentence(
     normalizeWhitespace(stripHtmlTags(incident.summary)) || 'AI security incident summary and response guidance.',
-    260
+    160
   );
   const seoSnippet = renderSeoMeta({
-    title: `${incident.title} | AI Security Radar`,
+    title: incidentSearchTitle(incident.sourceTitle ?? incident.title),
     description: seoDescription,
-    canonicalPath: `/incidents/${incident.slug}`,
+    canonicalPath: `/incidents/${encodeURIComponent(incident.slug)}`,
     siteUrl,
     type: 'article',
   });
-  const incidentUrl = absoluteUrl(siteUrl, `/incidents/${incident.slug}`);
+  const incidentUrl = absoluteUrl(siteUrl, `/incidents/${encodeURIComponent(incident.slug)}`);
   const isoDate = (() => {
     const candidate = incident.publicationDateIso ?? incident.sortDate ?? '';
     const parsed = Date.parse(candidate);
@@ -1311,12 +1319,22 @@ export function renderIncidentDetailPage(
     description: seoDescription,
     url: incidentUrl,
     mainEntityOfPage: incidentUrl,
+    inLanguage: 'en',
+    publisher: { '@type': 'Organization', name: 'AI Security Radar', url: absoluteUrl(siteUrl, '/') },
+    citation: incident.sources.map((source) => toSafeUrl(source.url)).filter((url) => /^https?:/.test(url)),
   };
   if (isoDate) {
     articleJsonLdObject.datePublished = isoDate;
-    articleJsonLdObject.dateModified = isoDate;
+    const modified = Date.parse(incident.modifiedDateIso ?? '');
+    articleJsonLdObject.dateModified = Number.isFinite(modified) && modified >= Date.parse(isoDate)
+      ? new Date(modified).toISOString() : isoDate;
   }
   const articleJsonLd = renderJsonLd(articleJsonLdObject);
+  const breadcrumbs = renderJsonLd({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [
+    { '@type': 'ListItem', position: 1, name: 'Home', item: absoluteUrl(siteUrl, '/') },
+    { '@type': 'ListItem', position: 2, name: 'AI security incidents', item: absoluteUrl(siteUrl, '/incidents') },
+    { '@type': 'ListItem', position: 3, name: incident.title, item: incidentUrl },
+  ] });
   const shareText = encodeURIComponent(`AI security incident: ${incident.title}`);
   const shareUrl = encodeURIComponent(incidentUrl);
   const shareX = `https://twitter.com/intent/tweet?text=${shareText}&url=${shareUrl}`;
@@ -1327,9 +1345,9 @@ export function renderIncidentDetailPage(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${safeTitle}</title>
   ${seoSnippet}
   ${articleJsonLd}
+  ${breadcrumbs}
   <style>
     body { font-family: Georgia, "Times New Roman", serif; margin: 0; background:#f7f5ef; color:#1c1915; }
     .wrap { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; }
@@ -1411,10 +1429,11 @@ export function renderIncidentDetailPage(
 <body>
   <main class="wrap">
     ${renderSiteHeader()}
-    <p><a href="/incidents">Back to incidents</a></p>
+    <nav aria-label="Breadcrumb"><a href="/">Home</a> / <a href="/incidents">AI security incidents</a> / <span aria-current="page">${safeTitle}</span></nav>
     <article>
       <h1>${safeTitle}</h1>
       <p class="meta">Source disclosure: ${safeIncidentDate} | Published on Radar: ${safePublishedDate} | Source: ${safeSourceKind} | Classification confidence: ${safeConfidence}</p>
+      ${incident.modifiedDateIso && incident.modifiedDateIso !== incident.publicationDateIso ? `<p class="meta">Page updated: <time datetime="${escapeAttr(incident.modifiedDateIso)}">${toSafeText(new Date(incident.modifiedDateIso).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }))}</time></p>` : ''}
       <p class="meta">Source disclosure is when the advisory appeared in this source (or was added to a catalog), not a confirmed date of exploitation. Radar publication is when this page became available.</p>
       <div class="coverage-note">${toSafeText(coverageNote)} <a href="/methodology">Review methodology</a>.</div>
       <p>${safeSummary}</p>
@@ -1495,7 +1514,6 @@ function renderPolicyShell(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${safeTitle} - AI Security Radar</title>
   ${seoSnippet}
   <style>
     body { font-family: Georgia, "Times New Roman", serif; margin: 0; background: #f7f5ef; color: #1c1915; }
@@ -1651,7 +1669,6 @@ export function renderAdminOpsPage(siteUrl?: string): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin Operations - AI Security Radar</title>
   ${seoSnippet}
   <style>
     body { font-family: Georgia, "Times New Roman", serif; margin: 0; background: #f7f5ef; color: #1c1915; }
@@ -1940,6 +1957,8 @@ export function renderAdminOpsPage(siteUrl?: string): string {
             ' | Last successful scan: ' + escapeHtml(s.lastSuccessAt || 'none') +
             (s.cooldownUntil ? ' | Retry after: ' + escapeHtml(s.cooldownUntil) : '') + '</p>').join('') +
           '<p>' + escapeHtml((h.errors || []).join('; ')) + '</p>' +
+          '<p>Collection notes: ' + escapeHtml((h.warnings || []).join('; ')) + '</p>' +
+          (h.enrichment ? '<p>Optional enrichment: ' + escapeHtml(h.enrichment.status) + ' | Last checked: ' + escapeHtml(h.enrichment.finishedAt || 'none') + '</p>' : '') +
           '<p>Historical high-severity records without drafts: ' + (h.orphanedHighSeverity || []).length + '. Review these individually in the ingestion list.</p>' +
           (h.backfill ? '<p>Recovery: ' + (h.backfill.enabled ? 'active' : 'complete') + ' | ' + escapeHtml(h.backfill.from) + ' to ' + escapeHtml(h.backfill.to) + '</p>' : '');
       } catch (error) { setStatus(error.message, 'err'); }
@@ -2121,7 +2140,6 @@ export function renderAdminMetricsPage(siteUrl?: string): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin Metrics - AI Security Radar</title>
   ${seoSnippet}
   <style>
     body { font-family: Georgia, "Times New Roman", serif; margin:0; background:#f7f5ef; color:#1c1915; }

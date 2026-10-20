@@ -8,7 +8,7 @@ import { renderAdminOpsPage } from '../src/ui';
 import { Script } from 'node:vm';
 import { enrichPendingDrafts } from '../src/ingestion-enrichment';
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 const auth = { Authorization: 'Bearer test-admin' };
 const dates = { from: '2026-02-01T00:00:00Z', to: '2026-02-28T00:00:00Z', sources: ['ghsa'] };
 
@@ -105,6 +105,7 @@ describe('operator safety and visibility', () => {
   });
 
   test('failed optional enrichment leaves publication intact and is retryable after cooldown', async () => {
+    vi.useFakeTimers();
     const fixture = createTestDb();
     fixture.sqlite.prepare(`INSERT INTO ingested_events(source,external_id,title,url,summary,published_at,fingerprint,created_at)
       VALUES ('ghsa','GHSA-enrich','LLM security vulnerability','https://example.com','LLM issue',?,'enrich',?)`)
@@ -112,16 +113,16 @@ describe('operator safety and visibility', () => {
     fixture.sqlite.prepare(`INSERT INTO draft_posts(event_id,status,headline,linkedin_text,x_text,tags,published_at,created_at)
       VALUES (1,'published','LLM issue','','','',?,?)`).run(dates.from, dates.from);
     const env = { DB: fixture.db, OPENAI_API_KEY: 'test-only', OPENAI_MODEL: 'gpt-5-mini' };
-    const failed = await enrichPendingDrafts(env, async () => new Response('', { status: 429 }), Date.now() + 1000, 2);
+    const failed = await enrichPendingDrafts(env, async () => new Response('', { status: 429 }), Date.now() + 3000, 2);
     expect(failed.warnings).toHaveLength(1);
     expect(fixture.sqlite.prepare('SELECT status,enriched_at FROM draft_posts').get()).toMatchObject({ status: 'published', enriched_at: null });
     let calls = 0;
     const successful: typeof fetch = async () => { calls += 1; return new Response(JSON.stringify({ output_text: JSON.stringify({
       summary: 'LLM vulnerability in the affected package.', impact: 'Access to application data may be exposed.', remedy: ['Upgrade.', 'Limit access.', 'Review logs.'],
     }) })); };
-    expect((await enrichPendingDrafts(env, successful, Date.now() + 1000, 2)).calls).toBe(0);
-    fixture.sqlite.exec("DELETE FROM ingestion_state WHERE key='enrichment:cooldown'");
-    expect((await enrichPendingDrafts(env, successful, Date.now() + 1000, 2)).calls).toBe(1);
+    expect((await enrichPendingDrafts(env, successful, Date.now() + 3000, 2)).calls).toBe(0);
+    vi.advanceTimersByTime(2 * 3600000 + 1);
+    expect((await enrichPendingDrafts(env, successful, Date.now() + 3000, 2)).calls).toBe(1);
     expect(calls).toBe(1);
     expect(fixture.sqlite.prepare('SELECT enriched_summary FROM draft_posts').get()?.enriched_summary).toContain('LLM vulnerability');
   });
